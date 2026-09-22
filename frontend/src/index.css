@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background:          60 21% 93%;   /* #F0F0E8 canvas */
+    --foreground:          0 0% 0%;      /* #000000 ink */
+    --card:                0 0% 100%;
+    --card-foreground:     0 0% 0%;
+    --primary:             221 73% 47%;  /* #1D4ED8 hyper blue */
+    --primary-foreground:  0 0% 100%;
+    --secondary:           0 0% 95%;
+    --secondary-foreground:0 0% 0%;
+    --muted:               0 0% 95%;
+    --muted-foreground:    220 9% 46%;   /* #4B5563 steel grey */
+    --accent:              0 0% 90%;
+    --accent-foreground:   0 0% 0%;
+    --destructive:         0 72% 51%;    /* #DC2626 alert red */
+    --destructive-foreground: 0 0% 100%;
+    --border:              0 0% 0%;      /* #000000 */
+    --input:               0 0% 0%;
+    --ring:                221 73% 47%;
+    --radius:              0px;          /* no rounding */
+
+    /* status badge colours — brutalist */
+    --status-analyzed-bg:   0 0% 90%;
+    --status-analyzed-fg:   0 0% 0%;
+    --status-exported-bg:   214 100% 93%;
+    --status-exported-fg:   221 73% 37%;
+    --status-applied-bg:    221 73% 47%;
+    --status-applied-fg:    0 0% 100%;
+    --status-interview-bg:  142 72% 29%;
+    --status-interview-fg:  0 0% 100%;
+    --status-rejected-bg:   0 72% 51%;
+    --status-rejected-fg:   0 0% 100%;
+  }
+}
+
+@layer base {
+  * { @apply border-border box-border; }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Serif headings */
+  h1, h2, h3, h4 {
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #000; }
+::-webkit-scrollbar-thumb:hover { background: #333; }

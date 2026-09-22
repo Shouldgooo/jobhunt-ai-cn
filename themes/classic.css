@@ -1,0 +1,173 @@
+/*
+ * Resume CSS — custom renderer
+ *
+ * Root element: #resume
+ * Edit freely — changes apply on next PDF export (no server restart needed).
+ *
+ * Key selectors:
+ *   .resume-header   — top section (name + contact)
+ *   .resume-name     — h1 name
+ *   .resume-contact  — contact links row
+ *   h2               — section headings (Summary, Skills, Experience…)
+ *   .row             — paired line (e.g. Job Title  ~  Location)
+ *   .row-main        — left side of paired line
+ *   .row-meta        — right side of paired line (date / location)
+ *   ul, li           — bullet points
+ *   strong           — bolded skills
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #000;
+  background: #fff;
+}
+
+#resume {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 14mm 18mm;
+}
+
+/* ── Header ───────────────────────────────────── */
+
+.resume-header {
+  text-align: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid #000;
+}
+
+.resume-name {
+  font-size: 19pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+}
+
+.resume-contact {
+  display: block;
+  text-align: center;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 9pt;
+}
+
+.resume-contact a,
+.resume-contact span {
+  color: #000;
+  text-decoration: none;
+}
+
+/* ── Section wrappers (added by renderer.js) ─── */
+
+.resume-section {
+  display: block;
+}
+
+/* ── Section headings ─────────────────────────── */
+
+h2 {
+  font-size: 10.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-bottom: 1px solid #000;
+  padding-bottom: 1px;
+  margin-top: 10px;
+  margin-bottom: 5px;
+}
+
+/* ── Paired rows (Job Title ~ Location, Company ~ Date) ── */
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1px;
+}
+
+.row-main {
+  /* inherits body font */
+}
+
+.row-meta {
+  font-size: 9.5pt;
+  color: #333;
+}
+
+/* ── Skills section: inline label: value on one line ── */
+
+.section-skills .row {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.section-skills .row-main {
+  font-weight: 700;
+}
+
+.section-skills .row-main::after {
+  content: ': ';
+  font-weight: 400;
+}
+
+.section-skills .row-meta {
+  font-size: inherit;
+  color: inherit;
+}
+
+/* ── Paragraphs ───────────────────────────────── */
+
+p {
+  margin-bottom: 3px;
+  text-align: justify;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+/* ── Bullet lists ─────────────────────────────── */
+
+ul {
+  margin: 2px 0 2px 16px;
+  list-style-type: circle;
+}
+
+ul+ul {
+  margin-top: 0;
+}
+
+/* no gap between consecutive single-bullet blocks */
+
+li {
+  margin-bottom: 1px;
+}
+
+/* ── Inline ───────────────────────────────────── */
+
+strong {
+  font-weight: 700;
+}
+
+a {
+  color: #000;
+  text-decoration: none;
+}
+
+/* ── Print ────────────────────────────────────── */
+
+@media print {
+  body {
+    background: white;
+  }
+}

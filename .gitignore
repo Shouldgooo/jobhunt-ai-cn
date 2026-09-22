@@ -1,0 +1,57 @@
+# Personal resume and job-search data
+user/cv.md
+user/profile.md
+user/prompts.json
+user/cover-letter/*
+!user/cover-letter/*.example.md
+
+
+# Dependencies
+backend/node_modules/
+
+# Environment & secrets
+backend/.env
+.env
+.env.local
+.env.*.local
+
+# Database (production)
+backend/applications.db
+backend/applications.db-shm
+backend/applications.db-wal
+
+# Generated output (PDFs, job-specific files)
+output/*/
+
+# Keep the output directory itself
+!output/.gitkeep
+
+# Demo build output
+demo-dist/
+
+# Vite production build (npm run build)
+backend/public/assets/
+backend/public/index.html
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json
+*.swp
+*.swo
+node_modules
+
+# Private planning docs
+SAAS_MIGRATION_PLAN.md

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+/*
+ * Resume CSS — custom renderer
+ *
+ * Root element: #resume
+ * Edit freely — changes apply on next PDF export (no server restart needed).
+ *
+ * Key selectors:
+ *   .resume-header   — top section (name + contact)
+ *   .resume-name     — h1 name
+ *   .resume-contact  — contact links row
+ *   h2               — section headings (Summary, Skills, Experience…)
+ *   .row             — paired line (e.g. Job Title  ~  Location)
+ *   .row-main        — left side of paired line
+ *   .row-meta        — right side of paired line (date / location)
+ *   ul, li           — bullet points
+ *   strong           — bolded skills
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #000;
+  background: #fff;
+}
+
+#resume {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 14mm 18mm;
+}
+
+/* ── Header ───────────────────────────────────── */
+
+.resume-header {
+  text-align: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid #000;
+}
+
+.resume-name {
+  font-size: 19pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+}
+
+.resume-contact {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 9pt;
+}
+
+.resume-contact a,
+.resume-contact span {
+  flex: 0 0 50%;
+  color: #000;
+  text-decoration: none;
+}
+
+/* Odd items (1st, 3rd…) → left-aligned, in left column */
+.resume-contact>*:nth-child(odd) {
+  text-align: left;
+  padding-right: 10px;
+}
+
+/* Even items (2nd, 4th…) → right-aligned, in right column */
+.resume-contact>*:nth-child(even) {
+  text-align: right;
+  padding-left: 10px;
+}
+
+/* ── Section wrappers (added by renderer.js) ─── */
+
+.resume-section {
+  display: block;
+}
+
+/* ── Section headings ─────────────────────────── */
+
+h2 {
+  font-size: 10.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-bottom: 1px solid #000;
+  padding-bottom: 1px;
+  margin-top: 10px;
+  margin-bottom: 5px;
+}
+
+/* ── Paired rows (Job Title ~ Location, Company ~ Date) ── */
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1px;
+}
+
+.row-main {
+  /* inherits body font */
+}
+
+.row-meta {
+  font-size: 9.5pt;
+  color: #333;
+}
+
+/* ── Skills section: inline label: value on one line ── */
+
+.section-skills .row {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.section-skills .row-main {
+  font-weight: 700;
+}
+
+.section-skills .row-main::after {
+  content: ': ';
+  font-weight: 400;
+}
+
+.section-skills .row-meta {
+  font-size: inherit;
+  color: inherit;
+}
+
+/* ── Paragraphs ───────────────────────────────── */
+
+p {
+  margin-bottom: 3px;
+  text-align: justify;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+/* ── Bullet lists ─────────────────────────────── */
+
+ul {
+  margin: 2px 0 2px 16px;
+  list-style-type: circle;
+}
+
+ul+ul {
+  margin-top: 0;
+}
+
+/* no gap between consecutive single-bullet blocks */
+
+li {
+  margin-bottom: 1px;
+}
+
+/* ── Inline ───────────────────────────────────── */
+
+strong {
+  font-weight: 700;
+}
+
+a {
+  color: #000;
+  text-decoration: none;
+}
+
+/* ── Print ────────────────────────────────────── */
+
+@media print {
+  body {
+    background: white;
+  }
+}
+</style>
+</head>
+<body>
+<div id="resume">
+  <header class="resume-header">
+    <h1 class="resume-name">Jordan Avery</h1>
+    <div class="resume-contact"><span>mobile: +61 412 000 000</span><a href="https://jordanavery.dev">portfolio: jordanavery.dev</a><a href="mailto:jordan@example.com">email: jordan@example.com</a><a href="https://www.linkedin.com/in/jordanavery/">linkedin: linkedin.com/in/jordanavery</a></div>
+  </header>
+  <main class="resume-body">
+<section class="resume-section section-summary">
+<h2>Summary</h2>
+<p>Full-stack engineer with 5 years of experience building scalable web applications. Passionate about developer tooling, clean architecture, and shipping products users love.</p>
+</section>
+<section class="resume-section section-skills">
+<h2>Skills</h2>
+<div class="row"><span class="row-main">Programming Languages</span><span class="row-meta"><strong>TypeScript</strong>, <strong>JavaScript</strong>, Python, Go</span></div>
+<div class="row"><span class="row-main">Front-end</span><span class="row-meta"><strong>React</strong>, <strong>Next.js</strong>, Tailwind CSS, Zustand</span></div>
+<div class="row"><span class="row-main">Back-end</span><span class="row-meta"><strong>Node.js</strong>, <strong>Express</strong>, PostgreSQL, Redis</span></div>
+<div class="row"><span class="row-main">Cloud & Tools</span><span class="row-meta">AWS, Docker, GitHub Actions, Terraform</span></div>
+</section>
+<section class="resume-section section-experience">
+<h2>Experience</h2>
+<div class="row"><span class="row-main"><strong>Senior Frontend Engineer</strong></span><span class="row-meta">Sydney, Australia</span></div>
+<div class="row"><span class="row-main">NovaPay</span><span class="row-meta">Mar 2023 – Present</span></div>
+<p>Fintech platform processing 2M+ daily transactions across 40 countries.</p>
+<p>Technologies: TypeScript, React, Node.js, PostgreSQL, AWS</p>
+<ul><li>Led migration of legacy dashboard to React 18 + Vite, cutting bundle size by 42% and load time by 1.8 s</li></ul>
+<ul><li>Built a real-time transaction monitoring UI adopted by 2,000+ merchants</li></ul>
+<ul><li>Reduced CI pipeline duration from 18 min to 6 min via parallelised test execution</li></ul>
+<ul><li>Mentored 3 junior engineers; authored code-review guide adopted across the frontend org</li></ul>
+<div class="row"><span class="row-main"><strong>Full Stack Developer</strong></span><span class="row-meta">Melbourne, Australia</span></div>
+<div class="row"><span class="row-main">DesignFlow</span><span class="row-meta">Jan 2021 – Feb 2023</span></div>
+<p>Collaborative design platform used by 150M+ users worldwide.</p>
+<p>Technologies: TypeScript, React, Node.js, GraphQL, Redis</p>
+<ul><li>Built a template recommendation engine that improved click-through rate by 31%</li></ul>
+<ul><li>Developed internal tooling saving the content team 10+ hours per week</li></ul>
+<ul><li>Migrated 40+ components to Storybook; set up visual regression testing with Chromatic</li></ul>
+</section>
+<section class="resume-section section-projects">
+<h2>Projects</h2>
+<div class="row"><span class="row-main"><strong>OpenTrack</strong></span><span class="row-meta">[github.com/jordanavery/opentrack](https://github.com/jordanavery/opentrack)</span></div>
+<p>Technologies: React, Node.js, SQLite, Tailwind CSS</p>
+<ul><li>Open-source job application tracker with AI-powered resume tailoring; 300+ GitHub stars</li></ul>
+<ul><li>Featured on Hacker News front page (May 2025)</li></ul>
+</section>
+<section class="resume-section section-certification">
+<h2>Certification</h2>
+<div class="row"><span class="row-main"><strong>AWS Certified Solutions Architect — Associate</strong></span><span class="row-meta">Jun 2023</span></div>
+</section>
+<section class="resume-section section-education">
+<h2>Education</h2>
+<div class="row"><span class="row-main"><strong>University of Sydney</strong></span><span class="row-meta">Feb 2017 – Nov 2020</span></div>
+<p>B.Sc. in Computer Science</p>
+</section>
+  </main>
+</div>
+</body>
+</html>

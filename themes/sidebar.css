@@ -1,0 +1,285 @@
+/*
+ * Resume CSS — Sidebar (two-column, dark header)
+ * Inspired by AltaCV LaTeX template
+ *
+ * Layout: LEFT = sidebar (summary, skills, education) — grey background, narrower
+ *         RIGHT = main content (experience, projects) — white, wider
+ *
+ * HTML structure:
+ *   <div id="resume">
+ *     <header class="resume-header">        ← full-width dark header
+ *     <main class="resume-body">
+ *       <div class="resume-left">           ← sidebar
+ *       <div class="resume-right">          ← main content
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.5;
+  color: #333;
+  background: #fff;
+}
+
+#resume {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* ── Header — full width dark banner ──────────────────── */
+
+.resume-header {
+  background: #2C2C2C;
+  padding: 9mm 14mm 7mm;
+}
+
+.resume-name {
+  font-size: 21pt;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+  margin-bottom: 5px;
+}
+
+.resume-contact {
+  display: block;
+  text-align: center;
+  font-size: 8pt;
+}
+
+.resume-contact a,
+.resume-contact span {
+  color: rgba(255, 255, 255, 0.82);
+  text-decoration: none;
+}
+
+/* ── Body — flex two-column ───────────────────────────── */
+
+.resume-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+}
+
+/* ── Left sidebar ─────────────────────────────────────── */
+
+.resume-left {
+  flex: 0 0 68mm;
+  background: #f0f2f5;
+  padding: 6mm 5mm 6mm 6mm;
+}
+
+/* ── Right main content ───────────────────────────────── */
+
+.resume-right {
+  flex: 1;
+  min-width: 0;
+  padding: 6mm 6mm 6mm 5mm;
+  background: #fff;
+  border-left: 2px solid #333333;
+}
+
+/* ── Section headings ─────────────────────────────────── */
+
+h2 {
+  font-size: 8.5pt;
+  font-weight: 700;
+  color: #333333;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  border-bottom: 1.5px solid #333333;
+  padding-bottom: 2px;
+  margin-top: 6mm;
+  margin-bottom: 5px;
+}
+
+.resume-left .resume-section:first-child h2,
+.resume-right .resume-section:first-child h2 {
+  margin-top: 0;
+}
+
+/* ── Left sidebar — rows (stacked label above value) ──── */
+
+.resume-left .row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  margin-bottom: 7px;
+}
+
+.resume-left .row-main {
+  font-size: 7pt;
+  font-weight: 400;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.resume-left .row-meta {
+  font-size: 8.5pt;
+  color: #1a1a1a;
+  font-weight: 500;
+  margin-left: 0;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+/* ── Right main — rows (horizontal job title + date) ─── */
+
+.resume-right .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1px;
+}
+
+.resume-right .row-main {
+  font-weight: 700;
+  font-size: 9.5pt;
+  color: #1a1a1a;
+}
+
+.resume-right .row-meta {
+  font-size: 8.5pt;
+  color: #666;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* ── Left sidebar bullets — tag/pill style ────────────── */
+
+.resume-left ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.resume-left li {
+  font-size: 8.5pt;
+  color: #2E2E2E;
+  padding: 3px 0;
+  border-bottom: 1px solid #d9dde3;
+}
+
+.resume-left li:last-child {
+  border-bottom: none;
+}
+
+/* ── Right main bullets — arrow marker ───────────────── */
+
+.resume-right ul {
+  list-style: none;
+  padding: 0;
+  margin: 3px 0;
+}
+
+.resume-right li {
+  font-size: 9pt;
+  padding-left: 13px;
+  position: relative;
+  margin-bottom: 2px;
+  color: #333;
+}
+
+.resume-right li::before {
+  content: '›';
+  color: #333333;
+  position: absolute;
+  left: 0;
+  font-size: 12pt;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+/* ── Paragraphs ───────────────────────────────────────── */
+
+.resume-left p {
+  font-size: 8.5pt;
+  color: #444;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.resume-right p {
+  font-size: 9pt;
+  color: #333;
+  margin-bottom: 3px;
+}
+
+/* ── Education / Certification in sidebar ─────────────── */
+
+.section-education .row,
+.section-certification .row,
+.section-certifications .row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  margin-bottom: 9px;
+  display: flex;
+}
+
+.section-education .row-main,
+.section-certification .row-main,
+.section-certifications .row-main {
+  font-size: 8.5pt;
+  font-weight: 600;
+  color: #1a1a1a;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.section-education .row-meta,
+.section-certification .row-meta,
+.section-certifications .row-meta {
+  font-size: 7.5pt;
+  color: #888;
+  margin-left: 0;
+  white-space: normal;
+}
+
+.section-education p,
+.section-certification p,
+.section-certifications p {
+  font-size: 8pt;
+  font-style: italic;
+  color: #555;
+  margin-bottom: 7px;
+}
+
+/* ── Strong ───────────────────────────────────────────── */
+
+strong {
+  font-weight: 700;
+  color: #333333;
+}
+
+/* ── Links ────────────────────────────────────────────── */
+
+a {
+  color: #333333;
+  text-decoration: none;
+}
+
+/* ── Print ────────────────────────────────────────────── */
+
+@media print {
+  body,
+  #resume,
+  .resume-left,
+  .resume-right {
+    background-color: initial;
+  }
+}

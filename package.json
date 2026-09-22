@@ -1,0 +1,22 @@
+{
+  "name": "jobhunt-ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build": "npm run build --prefix frontend",
+    "build:demo": "npm run build:demo --prefix frontend",
+    "gen:demo": "node scripts/generate-demo-assets.js",
+    "setup": "node scripts/setup.js",
+    "typecheck": "npm run typecheck --prefix frontend",
+    "lint": "npm run lint --prefix backend && npm run lint --prefix frontend",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "start": "npm run start --prefix backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.8.3"
+  }
+}

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/tristachou/jobhunt-ai/blob/main/README.md
+    about: Read the README before opening an issue — setup questions are often answered there.
+  - name: Discussions
+    url: https://github.com/tristachou/jobhunt-ai/discussions
+    about: For questions, ideas, or general chat that doesn't fit a bug report or feature request.
