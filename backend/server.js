@@ -55,20 +55,30 @@ api.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // ─── Analyze — Stage 1 ────────────────────────────────────────────────────────
 
 api.post('/analyze', async (req, res) => {
-  const { job_title, company, jd, url, source, theme, resume_template_id, generate_cover_letter } = req.body;
+  const { job_title, company, location, jd, url, source, theme, resume_template_id, generate_cover_letter } = req.body;
 
-  if (!job_title || !company || !jd) {
-    return res.status(400).json({ error: 'job_title, company, and jd are required' });
+  if (!jd || !String(jd).trim()) {
+    return res.status(400).json({ error: 'jd is required' });
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  if (provider !== 'ollama' && !process.env.GEMINI_API_KEY) {
     return res.status(500).json({ error: 'Gemini API key not configured — set GEMINI_API_KEY in backend/.env' });
   }
+
+  const { parseJd, mergeJobMeta } = require('./jd-parser');
+  const { generationKey, tryStartGeneration, finishGeneration } = require('./generation-lock');
+  const parsed = parseJd(jd);
+  const hints = {
+    job_title: job_title || parsed.job_title,
+    company:   company   || parsed.company,
+    location:  location  || parsed.location,
+  };
 
   // Theme: explicit in request → user.config.js default → 'classic'
   const resolvedTheme = (theme && isValidTheme(theme)) ? theme : (getUserConfig().theme || 'classic');
 
-  // Resolve base markdown: from template if specified, else tailor.js reads user/base.md
+  // Resolve base markdown: from template if specified, else tailor.js reads user/cv.md
   let baseMd;
   let resolvedTemplateId = resume_template_id || null;
   if (resume_template_id) {
@@ -80,27 +90,48 @@ api.post('/analyze', async (req, res) => {
     if (defaultTpl) { baseMd = defaultTpl.markdown; resolvedTemplateId = defaultTpl.id; }
   }
 
-  try {
-    const { tailorResume }        = require('./tailor');
-    const { generateCoverLetter } = require('./coverletter');
+  const doCoverLetter = generate_cover_letter !== false;
+  const lockKey = generationKey({
+    jd,
+    resume_template_id: resolvedTemplateId,
+    generate_cover_letter: doCoverLetter,
+  });
+  if (!tryStartGeneration(lockKey)) {
+    return res.status(409).json({ error: '生成正在进行中，请勿重复提交。' });
+  }
 
-    const tailor      = await tailorResume({ jd, baseMd });
-    const doCoverLetter = generate_cover_letter !== false;
-    const coverResult = doCoverLetter
-      ? await generateCoverLetter({ company, job_title, jd })
-      : { markdown: '', available: true };
+  try {
+    const { generateApplication } = require('./tailor');
+
+    const generated = await generateApplication({
+      jd,
+      baseMd,
+      generateCoverLetter: doCoverLetter,
+      hints,
+    });
+
+    const meta = mergeJobMeta(hints, parsed, generated);
+    if (!meta.job_title || !meta.company) {
+      return res.status(422).json({
+        error: '无法识别职位名称或公司，请手动填写后重试。',
+        job_title: meta.job_title,
+        company:   meta.company,
+        location:  meta.location,
+      });
+    }
 
     const id = insertApplication({
       created_at:         new Date().toISOString(),
-      company,
-      job_title,
+      company:            meta.company,
+      job_title:          meta.job_title,
+      location:           meta.location,
       url:                url    || '',
       source:             source || 'other',
       jd_text:            jd,
-      stack_used:         tailor.job_title,
-      fit_score:          tailor.fit_score,
-      resume_md:          tailor.markdown,
-      cover_md:           coverResult.markdown || '',
+      stack_used:         generated.job_title || meta.job_title,
+      fit_score:          generated.fit_score,
+      resume_md:          generated.markdown,
+      cover_md:           generated.cover_md || '',
       status:             'not_started',
       theme:              resolvedTheme,
       resume_template_id: resolvedTemplateId,
@@ -108,15 +139,20 @@ api.post('/analyze', async (req, res) => {
 
     res.json({
       id,
-      fit_score:              tailor.fit_score,
-      job_title:              tailor.job_title,
-      detected_skills:        tailor.detected_skills,
-      cover_letter_available: doCoverLetter ? coverResult.available : false,
+      fit_score:              generated.fit_score,
+      job_title:              meta.job_title,
+      company:                meta.company,
+      location:               meta.location,
+      detected_skills:        generated.detected_skills,
+      cover_letter_available: generated.cover_letter_available,
       theme:                  resolvedTheme,
     });
   } catch (err) {
     console.error('[/api/analyze error]', err.message);
-    res.status(500).json({ error: err.message });
+    const status = Number(err.statusCode);
+    res.status(status >= 400 && status < 600 ? status : 500).json({ error: err.message });
+  } finally {
+    finishGeneration(lockKey);
   }
 });
 
@@ -370,7 +406,7 @@ function formatThemeLabel(name) {
 const STATIC_COVER_PATH = path.resolve(__dirname, '../user/cover-letter/static.md');
 
 api.post('/applications', (req, res) => {
-  const { job_title, company, resume_template_id, source, url, jd, theme } = req.body;
+  const { job_title, company, location, resume_template_id, source, url, jd, theme } = req.body;
   if (!job_title || !company) {
     return res.status(400).json({ error: 'job_title and company are required' });
   }
@@ -397,9 +433,10 @@ api.post('/applications', (req, res) => {
 
   const id = insertApplication({
     created_at:         new Date().toISOString(),
-    company,
-    job_title,
-    url:                url    || '',
+      company,
+      job_title,
+      location:           location || '',
+      url:                url    || '',
     source:             source || 'other',
     jd_text:            jd     || '',
     stack_used:         '',

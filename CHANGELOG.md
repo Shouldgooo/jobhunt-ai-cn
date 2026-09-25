@@ -1,3 +1,22 @@
+## 2026-09-25 — One Gemini call per application + local JD extraction
+
+- Merge resume tailoring and cover-letter fills into a single `generateApplication` LLM request (`generate_cover_letter` no longer starts a second call)
+- Parse job title / company / location locally from pasted JD; Gemini only corrects missing fields in that same request
+- Add optional `location` column via backward-compatible ALTER TABLE; existing rows keep working
+- New Application: select master resume → paste JD → editable 职位名称 / 公司 / 地点 → 分析并生成; disable double-submit
+- Log logical vs HTTP Gemini attempts; map 429/503/404 to matching API statuses; 409 on concurrent duplicate generation
+
+---
+
+## 2026-09-23 — Improve Gemini 429/503 retry and error messages
+
+- Stop treating 429 quota errors as short 2s/4s/8s retries; wait Gemini `RetryInfo.retryDelay` at most once (cap 60s) or return immediately
+- Always pass the last Gemini error through `formatLlmError` — 429/503/404 stay distinguishable; drop the generic "temporarily unavailable after 3 retries" message
+- Show Chinese user-facing messages (`额度已达到限制` / `服务暂时繁忙`); `api.ts` displays the backend `error` string as-is
+- Log HTTP status, Gemini error status/code, retry delay, and attempt without the API key
+
+---
+
 ## 2026-09-22 — Keep personal job-search files out of the public repo
 
 - Ignore `user/cv.md`, `user/profile.md`, `user/prompts.json`, and `user/cover-letter/*` (keep `*.example.md` templates)

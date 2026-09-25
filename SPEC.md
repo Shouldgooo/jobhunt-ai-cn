@@ -47,8 +47,10 @@ Job-Apply-Bot/
 │       └── lib/api.ts             # Typed fetch wrapper for all /api calls
 ├── backend/
 │   ├── server.js                  # Express (port 3000) — all routes under /api
-│   ├── tailor.js                  # Resume tailoring + LLM call (Gemini or Ollama)
-│   ├── coverletter.js             # Cover letter generation
+│   ├── tailor.js                  # Resume tailoring + one-shot generateApplication (Gemini or Ollama)
+│   ├── jd-parser.js               # Local JD title/company/location extraction (no LLM)
+│   ├── generation-lock.js         # In-flight duplicate generation guard
+│   ├── coverletter.js             # Cover letter template fill (used after the single LLM call)
 │   ├── evaluator.js               # Job fit evaluation
 │   ├── renderer.js                # Oh My CV markdown → HTML
 │   ├── exporter.js                # HTML → PDF via Puppeteer
@@ -69,12 +71,13 @@ Job-Apply-Bot/
 
 ```
 Stage 1 — POST /api/analyze
-  JD + user/profile.md + user/cv.md
-    → tailor.js assembles prompt from prompts/tailor.md
-    → LLM (Gemini or Ollama): detects archetype, rewrites summary, reorders skills/bullets
-    → coverletter.js fills template.md placeholders
+  JD is required. Job title / company / location are optional (local parse + same LLM call).
+    → jd-parser.js extracts metadata locally (no LLM)
+    → tailor.js `generateApplication` makes ONE LLM call (Gemini or Ollama)
+    → same JSON includes analysis, tailored resume, job metadata, optional cover-letter fills
+    → coverletter.js fills template.md locally from that JSON (no second LLM call)
     → markdown saved to SQLite
-    → returns: fit_score, job_title, detected_skills, archetype
+    → returns: fit_score, job_title, company, location, detected_skills, cover_letter_available
 
 Stage 2 — user reviews / edits markdown in browser
 
@@ -91,7 +94,7 @@ Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/analyze` | Stage 1: AI tailor → save markdown to DB |
+| POST | `/api/analyze` | Stage 1: one LLM call → save analysis + resume + optional cover letter |
 | GET | `/api/applications` | All application records |
 | POST | `/api/applications` | Create application without AI |
 | GET | `/api/applications/:id` | Single application record |
@@ -134,17 +137,36 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-Sends a single LLM call in JSON mode. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). Returns:
 
 ```json
 {
-  "tailored_resume_md": "...",
+  "markdown": "...",
   "detected_skills": ["Python", "React", "AWS"],
   "fit_score": 82,
   "job_title": "Senior Backend Engineer",
-  "archetype": "Backend / Platform Engineer"
+  "company": "Acme Pty Ltd",
+  "location": "Melbourne, Victoria",
+  "archetype": "Backend / Platform Engineer",
+  "cover_md": "...",
+  "cover_letter_available": true
 }
 ```
+
+`tailorResume` remains for resume-only callers. `POST /api/analyze` uses `generateApplication` only — never a second cover-letter LLM call.
+
+Gemini call-count logs (no API key / CV / JD / PII):
+
+```
+[gemini] application generation started
+[gemini] generateContent call #1
+[gemini] application generation completed
+[gemini] total generateContent calls: 1
+```
+
+Retries log `logical generation request: 1` and `HTTP/API attempts: N`.
+
+`POST /api/analyze` returns Gemini 429 / 503 / 404 as those HTTP statuses (not a generic 500) when `formatLlmError` attaches `statusCode`. Concurrent duplicate generation returns 409.
 
 Tailoring rules (enforced via `prompts/tailor.md`):
 - **Rewrite:** Summary (inject JD keywords + apply archetype framing); Skills (bold + reorder)
@@ -154,13 +176,17 @@ Tailoring rules (enforced via `prompts/tailor.md`):
 
 Supports Gemini (default) and Ollama — switched via `LLM_PROVIDER` env var.
 
-Gemini `generateContent` retries HTTP 429/500/502/503/504 up to 3 times with exponential backoff (2s, 4s, 8s). Permanent errors (400/401/403/404) are not retried. After retries are exhausted the API returns: `Gemini is temporarily unavailable after 3 retries. Please try again later.`
+Gemini `generateContent` retry policy:
+- **503 / 500 / 502 / 504:** exponential backoff 2s / 4s / 8s, max 3 retries. Exhausted errors return: `Gemini 服务暂时繁忙，请稍后重试。`
+- **429 RESOURCE_EXHAUSTED:** do not use the short backoff. If Gemini `RetryInfo.retryDelay` is present and ≤ 60s, wait that delay and retry **once**. Otherwise return immediately. User-facing message: `Gemini API 请求额度已达到限制，请约 N 秒后重试。` (or `请稍后重试` when no delay is provided).
+- **400 / 401 / 403 / 404:** not retried. 404 still names the model and Gemini's message.
+- Final errors always go through `formatLlmError` — never a generic "temporarily unavailable after 3 retries" string. Backend logs HTTP status, Gemini `error.status` / `error.code`, retry delay, and attempt; never the API key.
 
 ---
 
 ### coverletter.js
 
-Fill-in-the-blank only. LLM fills placeholders in `user/cover-letter/template.md` without rewriting any other text.
+Fill-in-the-blank only. Placeholders in `user/cover-letter/template.md` are filled from the single `generateApplication` JSON (no second LLM call). `generateCoverLetter()` remains as a legacy helper and is not used by `/api/analyze`.
 
 Placeholders:
 ```
@@ -225,6 +251,7 @@ Both use `printBackground: true`. PDFs are streamed directly to the browser — 
 | created_at | TEXT | ISO 8601 |
 | company | TEXT | |
 | job_title | TEXT | |
+| location | TEXT | optional; added via ALTER TABLE, empty on older rows |
 | url | TEXT | |
 | source | TEXT | `linkedin` / `seek` / `other` |
 | jd_text | TEXT | full JD |

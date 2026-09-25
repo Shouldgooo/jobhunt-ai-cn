@@ -180,6 +180,8 @@ export const DEMO_ANALYZE_RESULT: AnalyzeResult = {
   id: 1,
   fit_score: 91,
   job_title: 'Senior Frontend Engineer',
+  company: 'Northwind Analytics',
+  location: 'Sydney, NSW',
   detected_skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'AWS', 'Docker', 'Redis'],
   cover_letter_available: true,
   theme: 'modern',

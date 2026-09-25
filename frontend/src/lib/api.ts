@@ -28,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     )
   }
   if (!res.ok) {
-    throw new Error(`${method} ${url} 失败（${res.status}）：${data.error ?? res.statusText}`)
+    throw new Error(data.error || `${method} ${url} 失败（${res.status}）：${res.statusText}`)
   }
   return data as T
 }
@@ -40,6 +40,7 @@ export interface Application {
   created_at: string
   company: string
   job_title: string
+  location?: string
   url: string
   source: string
   jd_text: string
@@ -77,6 +78,8 @@ export interface AnalyzeResult {
   id: number
   fit_score: number
   job_title: string
+  company?: string
+  location?: string
   detected_skills: string[]
   cover_letter_available: boolean
   theme: string
@@ -90,8 +93,9 @@ export type ThemeName = typeof THEMES[number]
 
 export const api = {
   analyze(body: {
-    job_title: string
-    company: string
+    job_title?: string
+    company?: string
+    location?: string
     jd: string
     url?: string
     source?: string
@@ -109,6 +113,7 @@ export const api = {
   createApplication(body: {
     job_title: string
     company: string
+    location?: string
     resume_template_id?: number
     source?: string
     url?: string

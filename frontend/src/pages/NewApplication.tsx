@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type AnalyzeResult, type ResumeTemplate, THEMES } from '@/lib/api'
 import { themeLabel } from '@/lib/labels'
+import { parseJd, createGenerationLock } from '@/lib/parse-jd'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,6 +23,7 @@ export default function NewApplication() {
   const [form, setForm] = useState({
     job_title: '',
     company: '',
+    location: '',
     source: 'linkedin',
     url: '',
     jd: '',
@@ -30,6 +32,7 @@ export default function NewApplication() {
     ai_customize: true,
     ai_cover_letter: true,
   })
+  const [manual, setManual] = useState({ job_title: false, company: false, location: false })
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const [result, setResult]         = useState<AnalyzeResult | null>(null)
@@ -37,6 +40,7 @@ export default function NewApplication() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const genLock = useRef(createGenerationLock())
 
   useEffect(() => {
     api.getTemplates().then(list => {
@@ -49,20 +53,45 @@ export default function NewApplication() {
   const set = (k: keyof typeof form) => (v: string | number | boolean) =>
     setForm(f => ({ ...f, [k]: v }))
 
+  const setManualField = (k: 'job_title' | 'company' | 'location') => (value: string) => {
+    setManual(m => ({ ...m, [k]: true }))
+    setForm(f => ({ ...f, [k]: value }))
+  }
+
+  function onJdChange(value: string) {
+    const extracted = parseJd(value)
+    setForm(f => ({
+      ...f,
+      jd: value,
+      job_title: manual.job_title ? f.job_title : extracted.job_title,
+      company:   manual.company   ? f.company   : extracted.company,
+      location:  manual.location  ? f.location  : extracted.location,
+    }))
+  }
+
   const hasJd = form.jd.trim().length > 0
   const useAI = hasJd && form.ai_customize
+  const extracted = parseJd(form.jd)
 
   async function handleSubmit() {
-    if (!form.job_title || !form.company) {
+    if (!genLock.current.tryStart() || loading) return
+
+    if (useAI && !hasJd) {
+      genLock.current.finish()
+      setError('请先粘贴职位描述。')
+      return
+    }
+    if (!useAI && (!form.job_title || !form.company)) {
+      genLock.current.finish()
       setError('职位名称和公司为必填项。')
       return
     }
+
     setLoading(true)
     setError(null)
     setResult(null)
 
     if (useAI) {
-      // Persona B: AI analyze flow
       const controller = new AbortController()
       const timeoutMs = parseInt(import.meta.env.VITE_ANALYZE_TIMEOUT_MS || '300000', 10)
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -70,6 +99,7 @@ export default function NewApplication() {
         const data = await api.analyze({
           job_title:           form.job_title,
           company:             form.company,
+          location:            form.location,
           jd:                  form.jd,
           url:                 form.url,
           source:              form.source,
@@ -78,6 +108,9 @@ export default function NewApplication() {
           generate_cover_letter: form.ai_cover_letter,
         }, controller.signal)
         setResult(data)
+        if (data.job_title) setForm(f => ({ ...f, job_title: f.job_title || data.job_title }))
+        if (data.company) setForm(f => ({ ...f, company: f.company || data.company || '' }))
+        if (data.location) setForm(f => ({ ...f, location: f.location || data.location || '' }))
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           setError(`请求超时（${timeoutMs / 1000} 秒）。请重试或换用更快的模型。`)
@@ -87,13 +120,14 @@ export default function NewApplication() {
       } finally {
         clearTimeout(timeout)
         setLoading(false)
+        genLock.current.finish()
       }
     } else {
-      // Persona A: direct save, no AI
       try {
         const { id } = await api.createApplication({
           job_title:          form.job_title,
           company:            form.company,
+          location:           form.location,
           resume_template_id: form.resume_template_id || undefined,
           source:             form.source,
           url:                form.url,
@@ -104,6 +138,7 @@ export default function NewApplication() {
       } catch (err) {
         setError(err instanceof Error ? err.message : '未知错误')
         setLoading(false)
+        genLock.current.finish()
       }
     }
   }
@@ -131,34 +166,12 @@ export default function NewApplication() {
       <div className="border-b-2 border-black pb-4">
         <h1 className="font-serif text-3xl font-bold">新建申请</h1>
         <p className="font-sans text-sm text-[#4B5563] mt-1">
-          记录一份新的求职申请。粘贴职位描述后，可由 AI 为你定制简历。
+          选择主简历，粘贴职位描述。系统会自动识别职位名称、公司和地点，再一次性生成定制申请。
         </p>
       </div>
 
       {/* Form */}
       <div className="space-y-5">
-
-        {/* Row 1 — Job title + Company */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="job_title">职位名称</Label>
-            <Input
-              id="job_title"
-              placeholder="软件工程师"
-              value={form.job_title}
-              onChange={e => set('job_title')(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="company">公司</Label>
-            <Input
-              id="company"
-              placeholder="某某公司"
-              value={form.company}
-              onChange={e => set('company')(e.target.value)}
-            />
-          </div>
-        </div>
 
         {/* Resume Template */}
         <div className="space-y-1.5">
@@ -240,17 +253,54 @@ export default function NewApplication() {
         {/* JD */}
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-2">
-            <Label htmlFor="jd">
-              职位描述 <span className="text-[#4B5563] normal-case font-sans text-xs">（选填）</span>
-            </Label>
+            <Label htmlFor="jd">职位描述</Label>
           </div>
           <Textarea
             id="jd"
-            placeholder="在此粘贴完整职位描述。留空则跳过 AI 分析。"
+            placeholder="在此粘贴完整职位描述。系统会自动识别职位名称、公司和地点，不会在输入时调用 AI。"
             className="min-h-44 resize-y"
             value={form.jd}
-            onChange={e => set('jd')(e.target.value)}
+            onChange={e => onJdChange(e.target.value)}
           />
+        </div>
+
+        {/* Auto-extracted metadata — editable */}
+        <div className="space-y-3">
+          <p className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">
+            自动识别
+            {hasJd && (extracted.job_title || extracted.company || extracted.location)
+              ? ' — 可修改'
+              : ' — 粘贴职位描述后自动填写'}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="job_title">职位名称</Label>
+              <Input
+                id="job_title"
+                placeholder="粘贴职位描述后自动识别"
+                value={form.job_title}
+                onChange={e => setManualField('job_title')(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="company">公司</Label>
+              <Input
+                id="company"
+                placeholder="粘贴职位描述后自动识别"
+                value={form.company}
+                onChange={e => setManualField('company')(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="location">地点</Label>
+              <Input
+                id="location"
+                placeholder="粘贴职位描述后自动识别"
+                value={form.location}
+                onChange={e => setManualField('location')(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
 
         {/* F1 — short JD warning */}
@@ -301,9 +351,9 @@ export default function NewApplication() {
         <div className="flex justify-end pt-1">
           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
             {loading ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> {useAI ? '分析中…' : '保存中…'}</>
+              <><Loader2 className="h-4 w-4 animate-spin" /> {useAI ? '生成中…' : '保存中…'}</>
             ) : useAI ? (
-              <>分析 <ArrowRight className="h-4 w-4" /></>
+              <>分析并生成 <ArrowRight className="h-4 w-4" /></>
             ) : (
               <><Save className="h-4 w-4" /> 保存并跟踪</>
             )}
@@ -333,8 +383,10 @@ export default function NewApplication() {
                     {scoreLabel(result.fit_score)}
                   </p>
                 </div>
-                <span className="ml-auto font-mono text-xs text-[#4B5563] uppercase tracking-wider">
+                <span className="ml-auto font-mono text-xs text-[#4B5563] uppercase tracking-wider text-right">
                   职位：<span className="text-black font-bold">{result.job_title}</span>
+                  {result.company && <> · {result.company}</>}
+                  {result.location && <> · {result.location}</>}
                 </span>
               </div>
             </div>

@@ -60,6 +60,14 @@ test('getAllApplications: returns records newest first', () => {
   assert.ok(idx_new < idx_old, 'Newer record should appear first');
 });
 
+test('insertApplication: persists optional location without dropping older fields', () => {
+  const id = insertApplication({ ...SAMPLE, company: 'LocationCo', location: 'Melbourne VIC' });
+  const rec = getAllApplications().find(r => Number(r.id) === Number(id));
+  assert.equal(rec.location, 'Melbourne VIC');
+  assert.equal(rec.company, 'LocationCo');
+  assert.equal(rec.job_title, 'Software Engineer');
+});
+
 test('updateApplication: updates a single field', () => {
   const id  = insertApplication({ ...SAMPLE, company: 'BeforeUpdate' });
   const ok  = updateApplication(Number(id), { company: 'AfterUpdate' });

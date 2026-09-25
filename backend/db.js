@@ -44,6 +44,7 @@ for (const col of [
   'resume_md TEXT', 'cover_md TEXT', "theme TEXT DEFAULT 'classic'",
   "status_log TEXT DEFAULT '[]'", "follow_up INTEGER DEFAULT 0", 'resume_template_id INTEGER',
   'eval_score INTEGER', 'eval_recommendation TEXT', 'eval_archetype TEXT', 'eval_review TEXT',
+  'location TEXT',
 ]) {
   try { db.exec(`ALTER TABLE applications ADD COLUMN ${col}`); } catch { /* already exists */ }
 }
@@ -83,10 +84,10 @@ function insertApplication(data) {
   const status_log = JSON.stringify([{ status: data.status, changed_at: data.created_at }]);
   return db.prepare(`
     INSERT INTO applications
-      (created_at, company, job_title, url, source, jd_text, stack_used, fit_score, resume_md, cover_md, status, theme, status_log, resume_template_id)
+      (created_at, company, job_title, location, url, source, jd_text, stack_used, fit_score, resume_md, cover_md, status, theme, status_log, resume_template_id)
     VALUES
-      (:created_at, :company, :job_title, :url, :source, :jd_text, :stack_used, :fit_score, :resume_md, :cover_md, :status, :theme, :status_log, :resume_template_id)
-  `).run({ resume_template_id: null, ...data, status_log }).lastInsertRowid;
+      (:created_at, :company, :job_title, :location, :url, :source, :jd_text, :stack_used, :fit_score, :resume_md, :cover_md, :status, :theme, :status_log, :resume_template_id)
+  `).run({ resume_template_id: null, location: '', ...data, status_log }).lastInsertRowid;
 }
 
 function getAllApplications() {
@@ -98,7 +99,7 @@ function getApplicationById(id) {
 }
 
 function updateApplication(id, fields) {
-  const ALLOWED = ['created_at', 'company', 'job_title', 'url', 'source',
+  const ALLOWED = ['created_at', 'company', 'job_title', 'location', 'url', 'source',
                    'jd_text', 'stack_used', 'fit_score', 'status', 'resume_md', 'cover_md', 'theme', 'status_log', 'follow_up',
                    'eval_score', 'eval_recommendation', 'eval_archetype', 'eval_review'];
   const pairs = Object.entries(fields).filter(([k]) => ALLOWED.includes(k));

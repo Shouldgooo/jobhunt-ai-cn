@@ -63,14 +63,20 @@ Return ONLY valid JSON (no markdown fences, no extra keys):
   "detected_skills": ["React", "Python", "AWS"],
   "fit_score": 82,
   "job_title": "Senior Backend Engineer",
-  "archetype": "Backend / Platform Engineer"
+  "company": "Acme Pty Ltd",
+  "location": "Melbourne, Victoria, Australia",
+  "archetype": "Backend / Platform Engineer",
+  "cover_letter": null
 }
 
 - tailored_resume_md: complete tailored CV in the same Oh My CV markdown format as the input
 - detected_skills: skills from the JD that appear in the candidate's CV (max 12)
 - fit_score: 0-100 integer — skills overlap + experience level + role type match
 - job_title: job title detected from the JD
+- company: company name detected from the JD (empty string if unknown)
+- location: job location detected from the JD (empty string if unknown)
 - archetype: detected role archetype from the table above
+- cover_letter: null unless the request also asks to fill the cover-letter template
 
 ---
 

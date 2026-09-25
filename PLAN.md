@@ -20,7 +20,8 @@
 | 2 | `resumes/config.json` — per-stack skill lists + soft skill pool | `[x]` | soft_skills.pool uses `{ keyword, bullet }` objects |
 | 3 | `cover-letter/template.md` | `[x]` | Done — has all 6 placeholders |
 | 4a | Gemini `gemini-2.5-flash` 404s for new API keys on Analyze | `[x]` | Default model is now `gemini-3.6-flash`; frontend shows method + `/api` path + backend error |
-| 4b | Retry Gemini 429/500/502/503/504 with exponential backoff | `[x]` | 2s / 4s / 8s, max 3 retries; 400/401/403/404 are not retried |
+| 4b | Retry Gemini 429/500/502/503/504 with exponential backoff | `[x]` | 503/5xx: 2s / 4s / 8s, max 3; 429: respect RetryInfo, at most one wait ≤ 60s; no generic exhausted-retry message |
+| 4c | One LLM call per new application + local JD parse | `[x]` | `generateApplication`; cover letter filled locally; title/company/location parsed before Gemini |
 
 ---
 
@@ -103,8 +104,8 @@
 
 ### tailor.js logic (v2)
 1. Reads `prompts/tailor.md` (fixed system prompt) + `user/profile.md` + `user/cv.md` (or `baseMd` from DB template)
-2. Sends single LLM call (Gemini or Ollama, selected via `LLM_PROVIDER` env var). Gemini retries 429/500/502/503/504 with 2s/4s/8s backoff (max 3); 400/401/403/404 fail immediately.
-3. Returns `{ markdown, fit_score, detected_skills, job_title, archetype }`
+2. `POST /api/analyze` uses `generateApplication`: one LLM call (Gemini or Ollama) for analysis + tailored resume + optional cover-letter fills + job metadata. Gemini: 503/5xx use 2s/4s/8s backoff (max 3); 429 waits `RetryInfo.retryDelay` at most once (≤ 60s) then `formatLlmError`; 400/401/403/404 fail immediately.
+3. Returns `{ markdown, fit_score, detected_skills, job_title, company, location, archetype, cover_md, cover_letter_available }`
 4. Validates response shape; clamps `fit_score` to 0–100
 5. **Never touches** bullet text, dates, metrics, YAML front matter — only rewrites Summary and reorders
 
@@ -193,7 +194,8 @@ theme  — default theme name (must match a file in themes/); fallback when no t
 | 42 | A4: PDF download button has no loading state — disable + show "Generating PDF…" | `[x]` | Fetch-based download with loading state; both buttons disabled during generation |
 | 43 | A5: Soft skill injection no-op is silent — return `soft_skills_injected: boolean` | `[x]` | Yellow hint in result card if false |
 | 44 | B1: Missing `GEMINI_API_KEY` shows "Unknown error" — check on startup, return clear message | `[x]` | Early return 500 with descriptive message in `/api/analyze` |
-| 45 | B2: Gemini 429 quota error shows "Unknown error" — detect HTTP 429 in axios catch | `[x]` | `geminiJSON` catches 429 in both `tailor.js` and `coverletter.js` |
+| 45 | B2: Gemini 429 quota error shows "Unknown error" — detect HTTP 429 in axios catch | `[x]` | `formatLlmError` returns Chinese quota text with RetryInfo seconds; frontend `api.ts` shows `data.error` |
+| 45a | Surface original Gemini 429/503 instead of generic retry-exhausted 500 | `[x]` | 429 respects RetryInfo (no 2/4/8s); 503 keeps backoff; never replace with "temporarily unavailable after 3 retries" |
 | 46 | B3: Missing `user/base.md` or `config.json` shows path crash — throw descriptive error | `[x]` | `tailorResume` checks file existence before reading |
 | 47 | B4: PDF 404 message is misleading — replace with "Resume markdown not saved — try re-generating" | `[x]` | Separate messages for resume vs cover letter |
 | 48 | B5: Settings shows "Saved" even on failure — move badge to `then()`, show red "Save failed" in `catch()` | `[x]` | Already correct in React version |

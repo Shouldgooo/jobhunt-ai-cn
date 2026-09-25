@@ -214,7 +214,7 @@ export default function Editor() {
           {app && (
             <div className="min-w-0">
               <p className="font-sans font-semibold text-sm truncate">
-                {app.company} — {app.job_title}
+                {app.company} — {app.job_title}{app.location ? ` · ${app.location}` : ''}
               </p>
               <p className="font-mono text-xs text-[#4B5563] hidden sm:block">{app.created_at.slice(0, 10)}</p>
             </div>
