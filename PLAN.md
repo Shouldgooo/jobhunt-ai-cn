@@ -21,7 +21,7 @@
 | 3 | `cover-letter/template.md` | `[x]` | Done — has all 6 placeholders |
 | 4a | Gemini `gemini-2.5-flash` 404s for new API keys on Analyze | `[x]` | Default model is now `gemini-3.6-flash`; frontend shows method + `/api` path + backend error |
 | 4b | Retry Gemini 429/500/502/503/504 with exponential backoff | `[x]` | 503/5xx: 2s / 4s / 8s, max 3; 429: respect RetryInfo, at most one wait ≤ 60s; no generic exhausted-retry message |
-| 4c | One LLM call per new application + local JD parse | `[x]` | `generateApplication`; cover letter filled locally; title/company/location parsed before Gemini |
+| 4c | One LLM call per new application + local JD parse | `[x]` | `generateApplication`; general job-ad parser (not SEEK-only); title/company/location parsed locally before Gemini |
 
 ---
 

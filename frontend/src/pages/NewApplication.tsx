@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type AnalyzeResult, type ResumeTemplate, THEMES } from '@/lib/api'
 import { themeLabel } from '@/lib/labels'
-import { parseJd, createGenerationLock } from '@/lib/parse-jd'
+import { parseJd, nextAutoField, createGenerationLock } from '@/lib/parse-jd'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -32,7 +32,7 @@ export default function NewApplication() {
     ai_customize: true,
     ai_cover_letter: true,
   })
-  const [manual, setManual] = useState({ job_title: false, company: false, location: false })
+  const lastAuto = useRef({ job_title: '', company: '', location: '' })
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const [result, setResult]         = useState<AnalyzeResult | null>(null)
@@ -54,19 +54,22 @@ export default function NewApplication() {
     setForm(f => ({ ...f, [k]: v }))
 
   const setManualField = (k: 'job_title' | 'company' | 'location') => (value: string) => {
-    setManual(m => ({ ...m, [k]: true }))
     setForm(f => ({ ...f, [k]: value }))
   }
 
-  function onJdChange(value: string) {
-    const extracted = parseJd(value)
-    setForm(f => ({
-      ...f,
-      jd: value,
-      job_title: manual.job_title ? f.job_title : extracted.job_title,
-      company:   manual.company   ? f.company   : extracted.company,
-      location:  manual.location  ? f.location  : extracted.location,
-    }))
+  function handleJDChange(newJD: string) {
+    const extracted = parseJd(newJD)
+    setForm(f => {
+      const job_title = nextAutoField(f.job_title, extracted.job_title, lastAuto.current.job_title)
+      const company   = nextAutoField(f.company, extracted.company, lastAuto.current.company)
+      const location  = nextAutoField(f.location, extracted.location, lastAuto.current.location)
+      lastAuto.current = {
+        job_title: job_title === extracted.job_title ? extracted.job_title : lastAuto.current.job_title,
+        company:   company   === extracted.company   ? extracted.company   : lastAuto.current.company,
+        location:  location  === extracted.location  ? extracted.location  : lastAuto.current.location,
+      }
+      return { ...f, jd: newJD, job_title, company, location }
+    })
   }
 
   const hasJd = form.jd.trim().length > 0
@@ -260,7 +263,7 @@ export default function NewApplication() {
             placeholder="在此粘贴完整职位描述。系统会自动识别职位名称、公司和地点，不会在输入时调用 AI。"
             className="min-h-44 resize-y"
             value={form.jd}
-            onChange={e => onJdChange(e.target.value)}
+            onChange={e => handleJDChange(e.target.value)}
           />
         </div>
 

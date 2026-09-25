@@ -2,6 +2,8 @@
 
 - Merge resume tailoring and cover-letter fills into a single `generateApplication` LLM request (`generate_cover_letter` no longer starts a second call)
 - Parse job title / company / location locally from pasted JD; Gemini only corrects missing fields in that same request
+- Recognize markdown-bold labels (`**Location:**`, `**Company: **`) on paste; fill empty/auto fields immediately without a Gemini call
+- General job-ad parser for whole-page pastes (labels, header heuristics, AU location scoring); not SEEK-specific; still 0 Gemini calls on paste
 - Add optional `location` column via backward-compatible ALTER TABLE; existing rows keep working
 - New Application: select master resume → paste JD → editable 职位名称 / 公司 / 地点 → 分析并生成; disable double-submit
 - Log logical vs HTTP Gemini attempts; map 429/503/404 to matching API statuses; 409 on concurrent duplicate generation

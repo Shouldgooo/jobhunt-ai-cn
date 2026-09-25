@@ -48,7 +48,7 @@ Job-Apply-Bot/
 ├── backend/
 │   ├── server.js                  # Express (port 3000) — all routes under /api
 │   ├── tailor.js                  # Resume tailoring + one-shot generateApplication (Gemini or Ollama)
-│   ├── jd-parser.js               # Local JD title/company/location extraction (no LLM)
+│   ├── jd-parser.js               # Local JD title/company/location extraction (no LLM; strips **bold** labels)
 │   ├── generation-lock.js         # In-flight duplicate generation guard
 │   ├── coverletter.js             # Cover letter template fill (used after the single LLM call)
 │   ├── evaluator.js               # Job fit evaluation
@@ -72,7 +72,7 @@ Job-Apply-Bot/
 ```
 Stage 1 — POST /api/analyze
   JD is required. Job title / company / location are optional (local parse + same LLM call).
-    → jd-parser.js extracts metadata locally (no LLM)
+    → jd-parser.js extracts metadata locally from a whole-page paste (normalize → labels → header heuristics → scoring; no LLM)
     → tailor.js `generateApplication` makes ONE LLM call (Gemini or Ollama)
     → same JSON includes analysis, tailored resume, job metadata, optional cover-letter fills
     → coverletter.js fills template.md locally from that JSON (no second LLM call)
