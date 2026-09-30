@@ -22,6 +22,17 @@
 | 4a | Gemini `gemini-2.5-flash` 404s for new API keys on Analyze | `[x]` | Default model is now `gemini-3.6-flash`; frontend shows method + `/api` path + backend error |
 | 4b | Retry Gemini 429/500/502/503/504 with exponential backoff | `[x]` | 503/5xx: 2s / 4s / 8s, max 3; 429: respect RetryInfo, at most one wait ≤ 60s; no generic exhausted-retry message |
 | 4c | One LLM call per new application + local JD parse | `[x]` | `generateApplication`; general job-ad parser (not SEEK-only); title/company/location parsed locally before Gemini |
+| 4d | Real-time generation progress + real cancel | `[x]` | NDJSON over POST /api/analyze; stage-mapped %; AbortController + axios AbortSignal; no DB write / lock released on cancel |
+| 4e | AI JD clean + thinkingLevel + no auto deadline | `[x]` | thinkingLevel=low; store raw JD / prompt cleaned JD; elapsed time is informational; only manual cancel aborts |
+| 4f | False USER_CANCELLED from req.close | `[x]` | Abort Gemini on res.close / req.aborted only; 生成已取消 requires explicit 取消生成 |
+| 4g | Verified local change summary | `[x]` | Original vs generated resume diff only; persist `change_summary`; no extra Gemini call |
+| 4h | Tailor WORK EXPERIENCE factually | `[x]` | Prompt rewrite/reorder of real bullets; title suffix only if supported; local experience safety flags |
+| 4i | History bulk mark as applied | `[x]` | Confirm dialog; `PATCH /api/applications/status/all`; one SQL UPDATE of `status` only; 0 Gemini calls |
+| 4j | History download button visible | `[x]` | Desktop row actions no longer hover-only |
+| 4k | Monochrome UI + job follow-up Q&A | `[x]` | Black/white chrome; Editor 追问 tab; `POST /api/applications/:id/ask`; persist `qa_thread` |
+| 4l | Morandi dusty-rose visual refresh | `[x]` | CSS tokens; Dashboard layout; no backend/Gemini changes |
+| 4m | New Application defaults + success downloads | `[x]` | 简历 on / 求职信 off; stay on page; existing PDF GET after save; 查看分析结果 → editor |
+| 4n | Editor 分析 tab concise Chinese summary | `[x]` | Local view from fit_score + verified change_summary / optional evidence matrix; hide Evaluate CTA; no extra Gemini |
 
 ---
 
@@ -104,10 +115,10 @@
 
 ### tailor.js logic (v2)
 1. Reads `prompts/tailor.md` (fixed system prompt) + `user/profile.md` + `user/cv.md` (or `baseMd` from DB template)
-2. `POST /api/analyze` uses `generateApplication`: one LLM call (Gemini or Ollama) for analysis + tailored resume + optional cover-letter fills + job metadata. Gemini: 503/5xx use 2s/4s/8s backoff (max 3); 429 waits `RetryInfo.retryDelay` at most once (≤ 60s) then `formatLlmError`; 400/401/403/404 fail immediately.
+2. `POST /api/analyze` uses `analyze-flow.js` → `generateApplication`: one LLM call (Gemini or Ollama) for analysis + tailored resume + optional cover-letter fills + job metadata. After that call, `change-summary.js` locally diffs original vs generated resume and stores verified JSON on the row. Streams NDJSON progress when `Accept: application/x-ndjson`. Gemini: 503/5xx use 2s/4s/8s backoff (max 3); 429 waits `RetryInfo.retryDelay` at most once (≤ 60s) then `formatLlmError`; 400/401/403/404 fail immediately. Real client disconnect (`res.close` / `req.aborted`, not `req.close`) → axios `signal` cancels the in-flight HTTP request; no insert; generation lock released. UI 生成已取消 only after 取消生成.
 3. Returns `{ markdown, fit_score, detected_skills, job_title, company, location, archetype, cover_md, cover_letter_available }`
 4. Validates response shape; clamps `fit_score` to 0–100
-5. **Never touches** bullet text, dates, metrics, YAML front matter — only rewrites Summary and reorders
+5. Rewrites Summary and Work Experience from real CV/profile evidence; Skills bold/reorder; Projects stay projects. Never invents employers, dates, official titles, or metrics. Optional `Official Title | Functional Focus` only when the source supports it.
 
 ### coverletter.js placeholders
 `{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`
@@ -119,15 +130,17 @@ Returns `{ eval_score, eval_recommendation, eval_archetype, eval_review }`.
 
 ### API endpoints (see SPEC.md for full reference)
 ```
-POST /api/analyze        → { id, fit_score, job_title, detected_skills, cover_letter_available, theme }
+POST /api/analyze        → JSON { id, fit_score, … } or NDJSON progress events then complete.application
 POST /api/applications   → { id }  (create without AI)
 GET  /api/applications   → all records
 GET  /api/applications/:id → single record
 PATCH /api/applications/:id → partial update
+PATCH /api/applications/status/all → { success, updated, status }  (status column only)
 DELETE /api/applications/:id
 GET  /api/applications/:id/pdf?type=resume|coverletter → PDF stream
 POST /api/applications/:id/rescore → { fit_score }
 POST /api/applications/:id/evaluate → { eval_score, eval_recommendation, eval_archetype, eval_review }
+POST /api/applications/:id/ask → { answer, qa_thread }  (follow-up Q&A; does not rewrite documents)
 POST /api/preview        → { html }
 GET/PUT /api/profile     — user/profile.md
 GET/PUT /api/cv          — user/cv.md
@@ -158,6 +171,7 @@ Empty table on startup → import `user/cv.md` as "Master Resume" (`is_default =
 - `exportResumePDF(markdown, theme)` → Buffer
 - `exportCoverLetterPDF(markdown)` → Buffer
 - Both use `page.setContent()` + `page.pdf({ printBackground: true })`
+- Empty `PUPPETEER_CACHE_DIR` (Cursor sandbox) falls back to `~/.cache/puppeteer`
 
 ### backend/package.json dependencies
 `express`, `axios`, `dotenv`, `puppeteer`
@@ -169,7 +183,7 @@ GEMINI_MODEL         — Gemini model name (default: gemini-3.6-flash)
 LLM_PROVIDER         — "gemini" (default) or "ollama"
 OLLAMA_BASE_URL      — Ollama base URL (default: http://localhost:11434)
 OLLAMA_MODEL         — Ollama model name (default: gemma3:12b)
-LLM_TIMEOUT_MS       — LLM request timeout in ms (default: 120000)
+LLM_TIMEOUT_MS       — optional Ollama axios timeout; unset means no timeout
 PORT                 — backend port (default 3000); Vite /api proxy reads this
 ```
 

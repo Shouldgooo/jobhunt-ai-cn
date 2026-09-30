@@ -94,10 +94,10 @@ export default function ResumeEditorPage() {
 
   if (loadingTpl) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-[#F0F0E8]">
+      <div className="flex h-dvh items-center justify-center bg-[var(--bg)]">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-blue-700" />
-          <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">[ 加载中… ]</span>
+          <div className="w-3 h-3 rounded-sm bg-[var(--primary)]" />
+          <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">[ 加载中… ]</span>
         </div>
       </div>
     )
@@ -105,24 +105,24 @@ export default function ResumeEditorPage() {
 
   if (error) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-[#F0F0E8]">
+      <div className="flex h-dvh items-center justify-center bg-[var(--bg)]">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-red-600" />
-          <span className="font-mono text-xs uppercase tracking-wider text-red-600">[ {error} ]</span>
+          <div className="w-3 h-3 rounded-sm bg-[var(--primary)]" />
+          <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-primary)]">[ {error} ]</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-dvh bg-[#F0F0E8]">
+    <div className="flex flex-col h-dvh bg-[var(--bg)]">
 
       {/* ── Header ── */}
-      <header className="bg-white border-b-2 border-black px-4 sm:px-6 h-12 flex items-center justify-between flex-shrink-0 gap-3">
+      <header className="bg-[var(--surface)] border-b border-[var(--border)] px-4 sm:px-6 h-12 flex items-center justify-between flex-shrink-0 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate('/resumes')}
-            className="text-[#4B5563] hover:text-black transition-colors flex-shrink-0"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -133,15 +133,15 @@ export default function ResumeEditorPage() {
             placeholder="模板名称"
           />
           {tpl?.is_default ? (
-            <span className="font-mono text-[10px] text-[#4B5563] uppercase tracking-wider hidden sm:flex items-center gap-1">
-              <Star className="h-3 w-3 fill-black text-black" /> 默认
+            <span className="font-mono text-[10px] text-[var(--text-secondary)] uppercase tracking-wider hidden sm:flex items-center gap-1">
+              <Star className="h-3 w-3 fill-[var(--primary-dark)] text-[var(--primary-dark)]" /> 默认
             </span>
           ) : null}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           {saving && (
-            <span className="font-mono text-xs text-[#4B5563] hidden sm:flex items-center gap-1 uppercase">
+            <span className="font-mono text-xs text-[var(--text-secondary)] hidden sm:flex items-center gap-1 uppercase">
               <Loader2 className="h-3 w-3 animate-spin" /> 保存中
             </span>
           )}
@@ -155,20 +155,20 @@ export default function ResumeEditorPage() {
 
       {/* ── Save error banner ── */}
       {saveError && (
-        <div className="border-b-2 border-red-600 bg-red-100 px-4 py-2 flex items-center gap-2 flex-shrink-0">
-          <div className="w-2.5 h-2.5 bg-red-600 flex-shrink-0" />
-          <span className="font-mono text-xs text-red-600 uppercase tracking-wider">{saveError}</span>
+        <div className="border-b border-[var(--border)] bg-neutral-200 px-4 py-2 flex items-center gap-2 flex-shrink-0">
+          <div className="w-2.5 h-2.5 rounded-sm bg-[var(--primary)] flex-shrink-0" />
+          <span className="font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">{saveError}</span>
         </div>
       )}
 
       {/* ── Mobile panel toggle ── */}
-      <div className="sm:hidden flex border-b-2 border-black bg-[#F0F0E8] flex-shrink-0">
+      <div className="sm:hidden flex border-b border-[var(--border)] bg-[var(--bg)] flex-shrink-0">
         {(['editor', 'preview'] as const).map(p => (
           <button
             key={p}
             onClick={() => { setPanelTab(p); if (p === 'preview') refreshPreview(markdown) }}
             className={`flex-1 py-2 font-mono text-xs uppercase tracking-wider transition-colors ${
-              panelTab === p ? 'bg-white text-black border-b-2 border-black -mb-px' : 'text-[#4B5563]'
+              panelTab === p ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b border-[var(--border)] -mb-px' : 'text-[var(--text-secondary)]'
             }`}
           >
             {PANEL_LABELS[p] ?? p}
@@ -180,15 +180,15 @@ export default function ResumeEditorPage() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Editor panel */}
-        <div className={`flex flex-col border-r-2 border-black bg-white ${
+        <div className={`flex flex-col border-r border-[var(--border)] bg-[var(--surface)] ${
           panelTab === 'editor' ? 'flex-1' : 'hidden'
         } sm:flex sm:flex-1`}>
-          <div className="px-4 py-2 border-b border-black bg-[#F0F0E8] flex items-center gap-2 flex-shrink-0">
-            <div className="w-2.5 h-2.5 bg-blue-700" />
-            <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">Markdown</span>
+          <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg)] flex items-center gap-2 flex-shrink-0">
+            <div className="w-2.5 h-2.5 rounded-sm bg-[var(--primary)]" />
+            <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">Markdown</span>
           </div>
           <textarea
-            className="flex-1 resize-none px-4 py-3 font-mono text-xs leading-relaxed bg-white focus:outline-none"
+            className="flex-1 resize-none px-4 py-3 font-mono text-xs leading-relaxed bg-[var(--surface)] focus:outline-none"
             value={markdown}
             onChange={e => handleMarkdownChange(e.target.value)}
             spellCheck={false}
@@ -197,17 +197,17 @@ export default function ResumeEditorPage() {
         </div>
 
         {/* Preview panel */}
-        <div className={`flex flex-col bg-[#F0F0E8] ${
+        <div className={`flex flex-col bg-[var(--bg)] ${
           panelTab === 'preview' ? 'flex-1' : 'hidden'
         } sm:flex sm:flex-1`}>
-          <div className="px-4 py-2 border-b border-black bg-[#F0F0E8] flex items-center justify-between flex-shrink-0">
+          <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg)] flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-green-700" />
-              <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">预览</span>
+              <div className="w-2.5 h-2.5 rounded-sm bg-[var(--primary)]" />
+              <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">预览</span>
             </div>
             <button
               onClick={() => refreshPreview(markdown)}
-              className="text-[#4B5563] hover:text-black transition-colors"
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
               title="刷新"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loadingPreview ? 'animate-spin' : ''}`} />
@@ -215,10 +215,10 @@ export default function ResumeEditorPage() {
           </div>
           <div className="flex-1 overflow-auto p-4">
             {preview
-              ? <iframe srcDoc={preview} className="w-full h-full border-2 border-black shadow-[4px_4px_0px_0px_#000000] bg-white" title="预览" />
+              ? <iframe srcDoc={preview} className="w-full h-full border border-[var(--border)] shadow-[var(--shadow)] bg-[var(--surface)]" title="预览" />
               : (
                 <div className="flex flex-col h-full items-center justify-center gap-3">
-                  <p className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">[ 暂无预览 — 点击刷新 ]</p>
+                  <p className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">[ 暂无预览 — 点击刷新 ]</p>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => refreshPreview(markdown)}>
                     <RefreshCw className="h-3.5 w-3.5" /> 刷新预览
                   </Button>

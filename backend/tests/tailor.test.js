@@ -315,6 +315,10 @@ test('prompts/tailor.md exists and contains required placeholders', () => {
   assert.ok(content.includes('{{PROFILE}}'), 'prompts/tailor.md must contain {{PROFILE}} placeholder');
   assert.ok(content.includes('{{CV}}'),      'prompts/tailor.md must contain {{CV}} placeholder');
   assert.ok(content.includes('{{JD}}'),      'prompts/tailor.md must contain {{JD}} placeholder');
+  assert.match(content, /WORK EXPERIENCE is a major tailoring target/);
+  assert.match(content, /Official Title \| Functional Focus/);
+  assert.match(content, /Do NOT move personal\/portfolio projects into WORK EXPERIENCE/);
+  assert.equal(content.includes('Do NOT rewrite bullet text'), false);
 });
 
 // ─── user/prompts.json — rescore and coverletter keys ────────────────────────

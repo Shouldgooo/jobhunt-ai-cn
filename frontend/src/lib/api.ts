@@ -1,3 +1,5 @@
+import { consumeAnalyzeNdjson, type AnalyzeStreamEvent } from './analyze-stream'
+
 const BASE = '/api'
 
 // ─── Demo mode ─────────────────────────────────────────────────────────────────
@@ -56,6 +58,19 @@ export interface Application {
   eval_recommendation: string | null
   eval_archetype: string | null
   eval_review: string | null  // JSON: {strengths, gaps, actions, summary}
+  change_summary?: string | null
+  qa_thread?: string | null
+}
+
+export interface QaMessage {
+  role: 'user' | 'assistant'
+  content: string
+  created_at?: string
+}
+
+export interface AskResult {
+  answer: string
+  qa_thread: QaMessage[]
 }
 
 export interface EvalResult {
@@ -103,11 +118,60 @@ export const api = {
     resume_template_id?: number
     generate_cover_letter?: boolean
   }, signal?: AbortSignal): Promise<AnalyzeResult> {
+    return api.analyzeWithProgress(body, { signal })
+  },
+
+  async analyzeWithProgress(body: {
+    job_title?: string
+    company?: string
+    location?: string
+    jd: string
+    url?: string
+    source?: string
+    theme?: string
+    resume_template_id?: number
+    generate_cover_letter?: boolean
+  }, opts: {
+    signal?: AbortSignal
+    onEvent?: (event: AnalyzeStreamEvent<AnalyzeResult>) => void
+  } = {}): Promise<AnalyzeResult> {
+    const emit = opts.onEvent ?? (() => {})
     if (DEMO_MODE) {
       triggerDemo()
-      return import('./demo-data').then(m => m.DEMO_ANALYZE_RESULT)
+      const { DEMO_ANALYZE_RESULT } = await import('./demo-data')
+      const demoEvents: AnalyzeStreamEvent<AnalyzeResult>[] = [
+        { type: 'progress', stage: 'accepted', progress: 5, message: '请求已接受…' },
+        { type: 'progress', stage: 'validating', progress: 10, message: '正在验证职位信息…' },
+        { type: 'progress', stage: 'parsing', progress: 20, message: '正在准备职位信息…' },
+        { type: 'progress', stage: 'preparing', progress: 30, message: '正在准备生成内容…' },
+        { type: 'progress', stage: 'generating', progress: 35, message: 'AI 正在分析 JD 并生成定制简历…' },
+        { type: 'progress', stage: 'received', progress: 85, message: '正在处理 AI 返回结果…' },
+        { type: 'progress', stage: 'saving', progress: 95, message: '正在保存申请记录…' },
+        { type: 'complete', progress: 100, message: '生成完成', application: DEMO_ANALYZE_RESULT },
+      ]
+      for (const event of demoEvents) emit(event)
+      return DEMO_ANALYZE_RESULT
     }
-    return request('/analyze', { method: 'POST', body: JSON.stringify(body), signal })
+
+    const res = await fetch(`${BASE}/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson',
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    })
+
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('ndjson')) {
+      const text = await res.text()
+      let data: { error?: string } = {}
+      try { data = JSON.parse(text) } catch { /* ignore */ }
+      throw new Error(data.error || `POST /api/analyze 失败（${res.status}）`)
+    }
+
+    return consumeAnalyzeNdjson<AnalyzeResult>(res.body, emit)
   },
 
   createApplication(body: {
@@ -142,6 +206,22 @@ export const api = {
     return request(`/applications/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
   },
 
+  patchAllApplicationStatus(status: Application['status']): Promise<{
+    success: boolean
+    updated: number
+    status: Application['status']
+  }> {
+    if (DEMO_MODE) {
+      triggerDemo()
+      return import('./demo-data').then(m => ({
+        success: true,
+        updated: m.DEMO_APPLICATIONS.length,
+        status,
+      }))
+    }
+    return request('/applications/status/all', { method: 'PATCH', body: JSON.stringify({ status }) })
+  },
+
   deleteApplication(id: number): Promise<{ ok: boolean }> {
     if (DEMO_MODE) { triggerDemo(); return Promise.resolve({ ok: true }) }
     return request(`/applications/${id}`, { method: 'DELETE' })
@@ -155,6 +235,20 @@ export const api = {
   evaluateApplication(id: number): Promise<EvalResult> {
     if (DEMO_MODE) { triggerDemo(); return Promise.resolve({ eval_score: 78, eval_recommendation: 'Apply', eval_archetype: 'Backend / Platform Engineer', eval_review: '{}' }) }
     return request(`/applications/${id}/evaluate`, { method: 'POST' })
+  },
+
+  askApplication(id: number, question: string): Promise<AskResult> {
+    if (DEMO_MODE) {
+      triggerDemo()
+      return Promise.resolve({
+        answer: '这是演示回答：结合该岗位要求与简历中的真实经历来说明兴趣，不会保存。',
+        qa_thread: [
+          { role: 'user', content: question, created_at: new Date().toISOString() },
+          { role: 'assistant', content: '这是演示回答：结合该岗位要求与简历中的真实经历来说明兴趣，不会保存。', created_at: new Date().toISOString() },
+        ],
+      })
+    }
+    return request(`/applications/${id}/ask`, { method: 'POST', body: JSON.stringify({ question }) })
   },
 
   getPdfUrl(id: number, type: 'resume' | 'coverletter'): string {

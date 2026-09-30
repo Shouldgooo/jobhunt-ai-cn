@@ -19,23 +19,23 @@ export default function Settings() {
     <div className="space-y-6">
 
       {/* Page header */}
-      <div className="border-b-2 border-black pb-4">
+      <div className="border-b border-[var(--border)] pb-4">
         <h1 className="font-serif text-3xl font-bold">设置</h1>
-        <p className="font-sans text-sm text-[#4B5563] mt-1">
+        <p className="font-sans text-sm text-[var(--text-secondary)] mt-1">
           编辑求职信模板和基础简历。
         </p>
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b-2 border-black -mt-2">
+      <div className="flex border-b border-[var(--border)] -mt-2">
         {(Object.keys(TAB_LABELS) as SettingsTab[]).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-5 py-2 font-mono text-xs uppercase tracking-wider border-b-2 -mb-px transition-colors ${
               activeTab === tab
-                ? 'border-black text-black'
-                : 'border-transparent text-[#4B5563] hover:text-black'
+                ? 'border-[var(--border)] text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             {TAB_LABELS[tab]}
@@ -79,7 +79,7 @@ function EditorPanel({
 }) {
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-[#4B5563] text-sm py-8">
+      <div className="flex items-center gap-2 text-[var(--text-secondary)] text-sm py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span className="font-mono text-xs uppercase tracking-wider">[ 加载中… ]</span>
       </div>
@@ -90,9 +90,9 @@ function EditorPanel({
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>{label}</Label>
-        <p className="font-mono text-xs text-[#4B5563]">{hint}</p>
+        <p className="font-mono text-xs text-[var(--text-secondary)]">{hint}</p>
         <textarea
-          className="w-full min-h-[calc(100vh-22rem)] rounded-none border border-black bg-white px-3 py-2.5 font-mono text-xs leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-blue-700"
+          className="w-full min-h-[calc(100vh-22rem)] rounded-none border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 font-mono text-xs leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
           spellCheck={false}
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -101,9 +101,9 @@ function EditorPanel({
       </div>
 
       {error && (
-        <div className="border-2 border-red-600 bg-red-100 px-3 py-2 flex items-start gap-2">
-          <div className="w-3 h-3 bg-red-600 flex-shrink-0 mt-0.5" />
-          <p className="font-mono text-xs text-red-600 uppercase tracking-wider">{error}</p>
+        <div className="border border-[var(--border)] bg-neutral-200 px-3 py-2 flex items-start gap-2">
+          <div className="w-3 h-3 rounded-sm bg-[var(--primary)] flex-shrink-0 mt-0.5" />
+          <p className="font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">{error}</p>
         </div>
       )}
 
@@ -113,7 +113,7 @@ function EditorPanel({
           {saveLabel}
         </Button>
         {saved && (
-          <span className="flex items-center gap-1.5 font-mono text-xs text-green-700 uppercase tracking-wider">
+          <span className="flex items-center gap-1.5 font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">
             <Check className="h-4 w-4" /> 已保存
           </span>
         )}
@@ -156,8 +156,8 @@ function CoverLetterPanel() {
       label="求职信模板"
       hint={<>
         每次创建申请时都会使用 — 无论是否启用 AI。
-        可用 <code className="text-blue-700">{'{{company}}'}</code> 和{' '}
-        <code className="text-blue-700">{'{{job_title}}'}</code> 作为占位符，系统会自动填充。
+        可用 <code className="text-[var(--text-primary)]">{'{{company}}'}</code> 和{' '}
+        <code className="text-[var(--text-primary)]">{'{{job_title}}'}</code> 作为占位符，系统会自动填充。
       </>}
       value={template}
       onChange={setTemplate}

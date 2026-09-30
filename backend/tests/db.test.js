@@ -12,7 +12,7 @@ const TEST_DB = path.join(os.tmpdir(), `jab_test_${Date.now()}.db`);
 process.env.TEST_DB_PATH = TEST_DB;
 
 // Import db AFTER setting env var
-const { insertApplication, getAllApplications, updateApplication, deleteApplication } = require('../db');
+const { insertApplication, getAllApplications, updateApplication, updateAllApplicationStatuses, deleteApplication } = require('../db');
 
 const SAMPLE = {
   created_at: '2026-03-18T10:00:00.000Z',
@@ -60,6 +60,20 @@ test('getAllApplications: returns records newest first', () => {
   assert.ok(idx_new < idx_old, 'Newer record should appear first');
 });
 
+test('insertApplication: persists change_summary JSON without touching document fields', () => {
+  const payload = JSON.stringify({
+    status: 'ok',
+    resume_changes: [{ section: 'Skills', type: 'modified', before: 'JavaScript', after: 'TypeScript', verified: true, jd_keywords: ['TypeScript'] }],
+    cover_letter: { items: [] },
+    unsupported: [],
+  });
+  const id = insertApplication({ ...SAMPLE, company: 'SummaryCo', change_summary: payload });
+  const rec = getAllApplications().find(r => Number(r.id) === Number(id));
+  assert.equal(rec.change_summary, payload);
+  assert.equal(rec.resume_md, SAMPLE.resume_md);
+  assert.equal(rec.cover_md, SAMPLE.cover_md);
+});
+
 test('insertApplication: persists optional location without dropping older fields', () => {
   const id = insertApplication({ ...SAMPLE, company: 'LocationCo', location: 'Melbourne VIC' });
   const rec = getAllApplications().find(r => Number(r.id) === Number(id));
@@ -88,6 +102,34 @@ test('updateApplication: updates multiple fields at once', () => {
 test('updateApplication: returns false for non-existent id', () => {
   const ok = updateApplication(999999, { status: 'applied' });
   assert.equal(ok, false);
+});
+
+test('updateApplication: persists qa_thread without touching resume or JD', () => {
+  const id = Number(insertApplication({ ...SAMPLE, company: 'QaCo', resume_md: 'RESUME-QA', jd_text: 'JD-QA' }));
+  const thread = JSON.stringify([{ role: 'user', content: '为什么感兴趣？' }, { role: 'assistant', content: '因为…' }]);
+  updateApplication(id, { qa_thread: thread });
+  const rec = getAllApplications().find(r => Number(r.id) === id);
+  assert.equal(rec.qa_thread, thread);
+  assert.equal(rec.resume_md, 'RESUME-QA');
+  assert.equal(rec.jd_text, 'JD-QA');
+});
+
+test('updateAllApplicationStatuses: sets every row to applied and leaves other columns', () => {
+  const idA = Number(insertApplication({ ...SAMPLE, company: 'BulkA', status: 'not_started', resume_md: 'RESUME-A', cover_md: 'COVER-A' }));
+  const idB = Number(insertApplication({ ...SAMPLE, created_at: '2026-04-01T00:00:00Z', company: 'BulkB', status: 'rejected', jd_text: 'JD-B' }));
+  const beforeA = getAllApplications().find(r => Number(r.id) === idA);
+  const updated = updateAllApplicationStatuses('applied');
+  assert.ok(updated >= 2);
+  const afterA = getAllApplications().find(r => Number(r.id) === idA);
+  const afterB = getAllApplications().find(r => Number(r.id) === idB);
+  assert.equal(afterA.status, 'applied');
+  assert.equal(afterB.status, 'applied');
+  assert.equal(afterA.company, 'BulkA');
+  assert.equal(afterA.resume_md, 'RESUME-A');
+  assert.equal(afterA.cover_md, 'COVER-A');
+  assert.equal(afterB.jd_text, 'JD-B');
+  assert.equal(afterA.created_at, beforeA.created_at);
+  assert.equal(afterA.status_log, beforeA.status_log);
 });
 
 test('updateApplication: ignores disallowed fields', () => {

@@ -1,3 +1,53 @@
+## 2026-09-30 — Editor 分析 tab concise Chinese summary
+
+- Replace the verbose original/adjusted resume blocks on 分析 with a compact Morandi summary: 匹配度, 综合分析, 本次简历调整, 主要优势, 需要注意, 建议
+- Derive copy locally from persisted `fit_score` and verified `change_summary` (optional evidence matrix if present); never invent missing skills as experience
+- Hide the duplicate 尚未评估 / 评估 Gemini CTA on this tab; keep `POST /api/applications/:id/evaluate` unused here
+
+## 2026-09-30 — New Application defaults and post-generation downloads
+
+- Default AI options on New Application: 简历 on, 求职信 off; cover letter remains optional and uses the existing generate path when selected
+- Stay on New Application after successful generation; compact 生成完成 actions download the saved PDFs (`GET /api/applications/:id/pdf`) without extra Gemini calls
+- Show 下载求职信 only when a cover letter was generated; 查看分析结果 → still opens `/editor/:id`
+
+## 2026-09-30 — Morandi dusty-rose visual refresh
+
+- Centralize warm Morandi tokens (`--bg`, `--surface`, `--primary`, status colors) and drop heavy black borders/offset shadows
+- Redesign Dashboard: five compact stats, 申请状态 + 待跟进, 最近申请 + 本周动态; add + 新建申请
+- Soft selected sidebar, muted status badges, and restyled charts without changing data logic
+
+## 2026-09-30 — Black-and-white UI and job follow-up Q&A
+
+- Switch app chrome to black / white / gray (buttons, badges, alerts, dashboard); resume PDF themes stay as-is
+- Soften page and card backgrounds to warm paper gray (`#D6D3CB` / `#E5E2DA`) so large white areas are less harsh
+- Add Editor 追问 tab and History entry so you can ask employer follow-ups after generating a resume
+- `POST /api/applications/:id/ask` answers from the saved JD, resume, cover letter, and profile; persist `qa_thread` only
+
+## 2026-09-30 — History download button always visible
+
+- Keep History row actions (download / edit / delete) visible instead of hover-only, so the PDF download control no longer disappears
+
+## 2026-09-25 — History bulk mark as applied
+
+- Add 全部标记为已申请 on History with a confirm dialog before any write
+- `PATCH /api/applications/status/all` runs one SQL `UPDATE applications SET status = ?` and returns `{ success, updated, status }`
+- Do not touch resume, cover letter, JD, analysis, change summary, or other columns; no Gemini/LLM calls
+
+## 2026-09-25 — Real generation progress and cancel
+
+- Stream real pipeline stages over NDJSON from `POST /api/analyze` (no timer-based fake %)
+- Keep the Gemini wait at 35% with an in-bar activity indicator; 429/503 retries update status text only
+- Wire AbortController from 取消生成 through Express `req.close` to axios `signal`, skip DB insert, and release the generation lock
+- Log generation/Gemini attempt timings without CV/JD/key content; do not treat elapsed wait time as an error
+- Send Gemini `thinkingConfig.thinkingLevel=low`; clean job-board chrome for the prompt only; store the original pasted JD
+- Show local elapsed wait time at 35% without inventing percentage progress or auto-aborting
+- Remove application-level generation deadlines; only 取消生成 aborts a long-running request
+- Stop treating `req.on('close')` as user cancel after the POST body is read; abort Gemini only on `res.close` / `req.aborted`
+- Show 生成已取消 only after an explicit 取消生成 click; unexpected disconnects show 连接已中断，生成未完成。
+- Fall back to `~/.cache/puppeteer` and pass an explicit Chrome `executablePath` so resume/cover PDF export works when Cursor sets an empty sandbox `PUPPETEER_CACHE_DIR`
+- Persist a local verified resume/cover-letter change summary; never show an unverified Gemini-written changelog
+- Tailor WORK EXPERIENCE from real CV/profile evidence; keep employer/dates/official title truthful; flag unsupported experience additions
+
 ## 2026-09-25 — One Gemini call per application + local JD extraction
 
 - Merge resume tailoring and cover-letter fills into a single `generateApplication` LLM request (`generate_cover_letter` no longer starts a second call)

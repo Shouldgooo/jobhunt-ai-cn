@@ -18,9 +18,70 @@ const MAX_GEMINI_RETRIES = 3;
 const GEMINI_RETRY_DELAYS_MS = [2000, 4000, 8000];
 const MAX_QUOTA_AUTORETRY = 1;
 const MAX_QUOTA_WAIT_MS = 60_000;
+const { CLIENT_DISCONNECTED, abortReasonText } = require('./generation-abort');
+const USER_CANCELLED = 'USER_CANCELLED';
+const GEMINI_THINKING_LEVEL = 'low';
+const GEMINI_GENERATION_CONFIG = {
+  response_mime_type: 'application/json',
+  thinkingConfig: { thinkingLevel: GEMINI_THINKING_LEVEL },
+};
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function cancelledError() {
+  const err = llmUserError('生成已取消', 499);
+  err.cancelled = true;
+  err.code = USER_CANCELLED;
+  return err;
+}
+
+function disconnectedError() {
+  const err = llmUserError('连接已中断，生成未完成。', 499);
+  err.disconnected = true;
+  err.code = CLIENT_DISCONNECTED;
+  return err;
+}
+
+function workAbortedError(signal) {
+  const reason = signal?.reason;
+  if (reason === USER_CANCELLED) return cancelledError();
+  return disconnectedError();
+}
+
+function isCancelledError(err) {
+  return Boolean(
+    err?.cancelled
+    || err?.disconnected
+    || err?.code === 'ERR_CANCELED'
+    || err?.code === USER_CANCELLED
+    || err?.code === CLIENT_DISCONNECTED
+    || err?.name === 'CanceledError'
+    || err?.name === 'AbortError'
+  );
+}
+
+function isUserCancelledError(err) {
+  return Boolean(err?.cancelled || err?.code === USER_CANCELLED);
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw workAbortedError(signal);
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      try { throwIfAborted(signal); } catch (err) { reject(err); }
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      try { throwIfAborted(signal); } catch (err) { reject(err); }
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /** Parse Gemini RetryInfo.retryDelay ("36s", "36.884s") into milliseconds. */
@@ -64,6 +125,10 @@ function formatRetrySeconds(retryDelayMs) {
   return Math.ceil(sec / 10) * 10;
 }
 
+function elapsedSince(startedAt) {
+  return Date.now() - (startedAt || Date.now());
+}
+
 function logGeminiDecision(info, { attempt, delayMs, action }) {
   const parts = [`[gemini] HTTP ${info.httpStatus ?? 'n/a'}`];
   if (info.status) parts.push(`status=${info.status}`);
@@ -82,6 +147,7 @@ function llmUserError(message, statusCode) {
 }
 
 function formatLlmError(err) {
+  if (isCancelledError(err)) return cancelledError();
   if (err && err.statusCode && err.message) return err;
   const info   = extractGeminiErrorInfo(err);
   const status = info.httpStatus;
@@ -115,17 +181,33 @@ function formatLlmError(err) {
  * - 400/401/403/404: fail immediately
  * Final errors always go through formatLlmError (never a generic "unavailable" message).
  */
-async function requestGeminiWithRetry(requestFn, { sleep: sleepFn = sleep } = {}) {
+async function requestGeminiWithRetry(requestFn, {
+  sleep: sleepFn = sleep,
+  signal,
+  onRetry,
+  startedAt = Date.now(),
+} = {}) {
   let lastErr;
   let overloadRetries = 0;
   let quotaRetries = 0;
 
   for (let attempt = 1; ; attempt++) {
+    throwIfAborted(signal);
+    console.log(`[gemini] attempt ${attempt} started +${elapsedSince(startedAt)}ms`);
     try {
-      return await requestFn();
+      const result = await requestFn();
+      console.log(`[gemini] attempt ${attempt} completed +${elapsedSince(startedAt)}ms`);
+      return result;
     } catch (err) {
       lastErr = err;
+      if (signal?.aborted || isCancelledError(err)) {
+        console.log(`[gemini] attempt ${attempt} cancelled +${elapsedSince(startedAt)}ms`);
+        console.log(`[cancel] Gemini axios canceled reason=${abortReasonText(signal?.reason)}`);
+        throw signal?.aborted ? workAbortedError(signal) : err;
+      }
       const info = extractGeminiErrorInfo(err);
+      const failCode = info.httpStatus ?? err?.code ?? 'n/a';
+      console.log(`[gemini] attempt ${attempt} failed +${elapsedSince(startedAt)}ms status=${failCode}`);
       const status = info.httpStatus;
 
       if (status === 429) {
@@ -141,15 +223,17 @@ async function requestGeminiWithRetry(requestFn, { sleep: sleepFn = sleep } = {}
         });
         if (!shouldRetry) break;
         quotaRetries += 1;
-        await sleepFn(delayMs);
+        onRetry?.({ status: 429, attempt, delayMs, kind: 'quota' });
+        await sleepFn(delayMs, signal);
         continue;
       }
 
       if (TRANSIENT_OVERLOAD_STATUSES.has(status) && overloadRetries < MAX_GEMINI_RETRIES) {
         const delayMs = GEMINI_RETRY_DELAYS_MS[overloadRetries];
         logGeminiDecision(info, { attempt, delayMs, action: 'retry' });
+        onRetry?.({ status, attempt, delayMs, kind: 'busy' });
         overloadRetries += 1;
-        await sleepFn(delayMs);
+        await sleepFn(delayMs, signal);
         continue;
       }
 
@@ -176,7 +260,29 @@ function parseLlmJson(text) {
   }
 }
 
-async function callLLM(prompt, { tracker } = {}) {
+function buildGeminiRequestBody(prompt) {
+  return {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: GEMINI_GENERATION_CONFIG,
+  };
+}
+
+function logUsageMetadata(data) {
+  const u = data?.usageMetadata || data?.usage_metadata;
+  if (!u || typeof u !== 'object') return;
+  const keys = [
+    'promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount',
+    'prompt_token_count', 'candidates_token_count', 'thoughts_token_count', 'total_token_count',
+  ];
+  const parts = [];
+  for (const key of keys) {
+    if (typeof u[key] === 'number') parts.push(`${key}=${u[key]}`);
+  }
+  if (parts.length) console.log(`[gemini] usage ${parts.join(' ')}`);
+}
+
+async function callLLM(prompt, { tracker, signal, onRetry, startedAt } = {}) {
+  throwIfAborted(signal);
   const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 
   if (provider === 'ollama') {
@@ -186,37 +292,39 @@ async function callLLM(prompt, { tracker } = {}) {
     }
     const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     const model   = process.env.OLLAMA_MODEL    || 'gemma3:12b';
-    const timeout = parseInt(process.env.LLM_TIMEOUT_MS || '120000', 10);
+    const timeout = process.env.LLM_TIMEOUT_MS
+      ? parseInt(process.env.LLM_TIMEOUT_MS, 10)
+      : 0;
     const res = await axios.post(
       `${baseUrl}/api/generate`,
       { model, prompt, format: 'json', stream: false },
-      { timeout }
+      { timeout, signal }
     );
+    throwIfAborted(signal);
     return parseLlmJson(res.data.response);
   }
 
-  // default: gemini — 503/5xx backoff; 429 respects RetryInfo (at most one wait); no 400/401/403/404 retry
+  // default: gemini — AbortSignal cancels the in-flight axios HTTP request
   return requestGeminiWithRetry(async () => {
+    throwIfAborted(signal);
     if (tracker) {
       tracker.httpAttempts += 1;
       console.log(`[gemini] generateContent call #${tracker.httpAttempts}`);
     }
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini request timed out after 60s')), 60000)
+    const body = buildGeminiRequestBody(prompt);
+    const res = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`,
+      body,
+      {
+        headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY },
+        timeout: 0,
+        signal,
+      }
     );
-    const res = await Promise.race([
-      axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`,
-        {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { response_mime_type: 'application/json' },
-        },
-        { headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY } }
-      ),
-      timeoutPromise,
-    ]);
+    throwIfAborted(signal);
+    logUsageMetadata(res.data);
     return parseLlmJson(res.data.candidates[0].content.parts[0].text);
-  });
+  }, { signal, onRetry, startedAt });
 }
 
 function logGenerationStart() {
@@ -319,8 +427,40 @@ async function generateApplication({
   generateCoverLetter = false,
   hints = {},
   coverTemplate: coverTemplateOverride,
-} = {}, { callLLM: llm = callLLM, tracker = createGeminiCallTracker() } = {}) {
+} = {}, { callLLM: llm = callLLM, tracker = createGeminiCallTracker(), signal, onProgress, startedAt = Date.now() } = {}) {
+  try {
+    return await runGenerateApplication({
+      jd,
+      externalBaseMd,
+      generateCoverLetter,
+      hints,
+      coverTemplateOverride,
+      llm,
+      tracker,
+      onProgress,
+      startedAt,
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw workAbortedError(signal);
+    throw err;
+  }
+}
+
+async function runGenerateApplication({
+  jd,
+  externalBaseMd,
+  generateCoverLetter,
+  hints,
+  coverTemplateOverride,
+  llm,
+  tracker,
+  onProgress,
+  startedAt,
+  signal,
+}) {
   const { fillTemplate } = require('./coverletter');
+  const { cleanJobDescriptionForAI } = require('./jd-clean');
 
   const cvMd = externalBaseMd ?? (() => {
     if (!fs.existsSync(CV_MD)) throw new Error('Missing user CV: `user/cv.md` not found.');
@@ -337,20 +477,50 @@ async function generateApplication({
     : ((generateCoverLetter && fs.existsSync(TEMPLATE_PATH)) ? fs.readFileSync(TEMPLATE_PATH, 'utf8') : '');
   const coverAvailable = generateCoverLetter && Boolean(coverTemplate);
 
+  throwIfAborted(signal);
+  onProgress?.({ type: 'progress', stage: 'preparing', progress: 30, message: '正在准备生成内容…' });
+
+  const cleanedJd = cleanJobDescriptionForAI(jd);
   const prompt = buildGenerationPrompt({
     tailorTemplate,
     profileMd,
     cvMd,
-    jd,
+    jd: cleanedJd,
     hints,
     generateCoverLetter: coverAvailable,
     coverTemplate,
   });
+  const requestBody = buildGeminiRequestBody(prompt);
+  console.log(`[generation] prompt prepared +${elapsedSince(startedAt)}ms chars=${prompt.length}`);
+  console.log(`[gemini] model=${geminiModel()}`);
+  console.log(`[gemini] rawJdChars=${String(jd || '').length}`);
+  console.log(`[gemini] cleanedJdChars=${cleanedJd.length}`);
+  console.log(`[gemini] promptChars=${prompt.length}`);
+  console.log(`[gemini] requestBytes=${Buffer.byteLength(JSON.stringify(requestBody))}`);
+  console.log(`[gemini] thinkingLevel=${GEMINI_THINKING_LEVEL}`);
+
+  throwIfAborted(signal);
+  onProgress?.({ type: 'progress', stage: 'sending', progress: 35, message: '正在连接 Gemini…' });
+  onProgress?.({ type: 'progress', stage: 'generating', progress: 35, message: 'AI 正在分析 JD 并生成定制简历…' });
 
   logGenerationStart();
   tracker.logicalCalls += 1;
-  const raw = await llm(prompt, { tracker });
+  const raw = await llm(prompt, {
+    tracker,
+    signal,
+    startedAt,
+    onRetry: (info) => {
+      const n = info.attempt;
+      const message = info.kind === 'quota'
+        ? `Gemini API 额度紧张，正在等待后重试（${n}）…`
+        : `Gemini 暂时繁忙，正在重试（${n}/3）…`;
+      onProgress?.({ type: 'progress', stage: 'retrying', progress: 35, message });
+    },
+  });
+  throwIfAborted(signal);
+  onProgress?.({ type: 'progress', stage: 'received', progress: 85, message: '正在处理 AI 返回结果…' });
   const result = normalizeGenerationResult(raw, { wantCoverLetter: coverAvailable });
+  onProgress?.({ type: 'progress', stage: 'validating_result', progress: 90, message: '正在校验生成结果…' });
   logGenerationDone(tracker);
 
   let cover_md = '';
@@ -375,6 +545,9 @@ async function generateApplication({
     cover_md,
     cover_letter_available: generateCoverLetter ? coverAvailable : false,
     tracker,
+    rawJdChars: String(jd || '').length,
+    cleanedJdChars: cleanedJd.length,
+    cleanedJd,
   };
 }
 
@@ -429,6 +602,16 @@ module.exports = {
   createGeminiCallTracker,
   callLLM,
   formatLlmError,
+  cancelledError,
+  disconnectedError,
+  workAbortedError,
+  isCancelledError,
+  isUserCancelledError,
+  throwIfAborted,
+  buildGeminiRequestBody,
+  GEMINI_GENERATION_CONFIG,
+  GEMINI_THINKING_LEVEL,
+  USER_CANCELLED,
   geminiModel,
   requestGeminiWithRetry,
   parseGeminiRetryDelayMs,

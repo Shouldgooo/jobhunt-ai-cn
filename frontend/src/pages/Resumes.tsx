@@ -74,7 +74,7 @@ export default function Resumes() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-[#4B5563] py-8">
+      <div className="flex items-center gap-2 text-[var(--text-secondary)] py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span className="font-mono text-xs uppercase tracking-wider">[ 加载中… ]</span>
       </div>
@@ -85,10 +85,10 @@ export default function Resumes() {
     <div className="space-y-8" onClick={() => setMenuOpen(null)}>
 
       {/* Header */}
-      <div className="border-b-2 border-black pb-4 flex items-end justify-between">
+      <div className="border-b border-[var(--border)] pb-4 flex items-end justify-between">
         <div>
           <h1 className="font-serif text-3xl font-bold">简历</h1>
-          <p className="font-sans text-sm text-[#4B5563] mt-1">
+          <p className="font-sans text-sm text-[var(--text-secondary)] mt-1">
             管理简历模板。新建申请时会使用默认模板。
           </p>
         </div>
@@ -99,16 +99,16 @@ export default function Resumes() {
       </div>
 
       {error && (
-        <div className="border-2 border-red-600 bg-red-100 px-3 py-2 flex items-start gap-2">
-          <div className="w-3 h-3 bg-red-600 flex-shrink-0 mt-0.5" />
-          <p className="font-mono text-xs text-red-600 uppercase tracking-wider">{error}</p>
+        <div className="border border-[var(--border)] bg-neutral-200 px-3 py-2 flex items-start gap-2">
+          <div className="w-3 h-3 rounded-sm bg-[var(--primary)] flex-shrink-0 mt-0.5" />
+          <p className="font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">{error}</p>
         </div>
       )}
 
       {/* Template list */}
       {templates.length === 0 ? (
-        <div className="border-2 border-dashed border-black px-6 py-12 text-center">
-          <p className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">
+        <div className="border border-dashed border-[var(--border)] rounded-xl px-6 py-12 text-center">
+          <p className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">
             暂无模板。点击「新建简历」创建一份。
           </p>
         </div>
@@ -117,12 +117,12 @@ export default function Resumes() {
           {templates.map(tpl => (
             <div
               key={tpl.id}
-              className="bg-white border-2 border-black shadow-[2px_2px_0px_0px_#000] flex items-center px-4 py-3 gap-4"
+              className="bg-[var(--surface)] border border-[var(--border)] shadow-[var(--shadow)] flex items-center px-4 py-3 gap-4"
             >
               {/* Default indicator */}
               <div className="flex-shrink-0 w-5 flex justify-center">
                 {tpl.is_default ? (
-                  <Star className="h-4 w-4 fill-black text-black" aria-label="默认模板" />
+                  <Star className="h-4 w-4 fill-[var(--primary-dark)] text-[var(--primary-dark)]" aria-label="默认模板" />
                 ) : (
                   <Star className="h-4 w-4 text-[#D1D5DB]" />
                 )}
@@ -131,7 +131,7 @@ export default function Resumes() {
               {/* Name + meta */}
               <div className="flex-1 min-w-0">
                 <p className="font-sans font-semibold text-sm truncate">{tpl.name}</p>
-                <p className="font-mono text-xs text-[#4B5563]">
+                <p className="font-mono text-xs text-[var(--text-secondary)]">
                   编辑于 {tpl.updated_at?.slice(0, 10) || '—'}
                 </p>
               </div>
@@ -155,26 +155,26 @@ export default function Resumes() {
                   </Button>
                   {menuOpen === tpl.id && (
                     <div
-                      className="absolute right-0 top-8 z-10 bg-white border-2 border-black shadow-[4px_4px_0px_0px_#000] min-w-40"
+                      className="absolute right-0 top-8 z-10 bg-[var(--surface)] border border-[var(--border)] shadow-[var(--shadow)] min-w-40"
                       onClick={e => e.stopPropagation()}
                     >
                       {!tpl.is_default && (
                         <button
-                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-black hover:text-white flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)] flex items-center gap-2"
                           onClick={() => handleSetDefault(tpl.id)}
                         >
                           <Star className="h-3.5 w-3.5" /> 设为默认
                         </button>
                       )}
                       <button
-                        className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-black hover:text-white flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)] flex items-center gap-2"
                         onClick={() => handleDuplicate(tpl)}
                       >
                         <Copy className="h-3.5 w-3.5" /> 创建副本
                       </button>
                       {templates.length > 1 && (
                         <button
-                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-red-600 hover:text-white flex items-center gap-2 text-red-600"
+                          className="w-full text-left px-3 py-2 font-mono text-xs uppercase tracking-wider hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)] flex items-center gap-2 text-[var(--text-primary)]"
                           onClick={() => handleDelete(tpl.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" /> 删除
@@ -189,32 +189,32 @@ export default function Resumes() {
         </div>
       )}
 
-      <p className="font-mono text-xs text-[#4B5563]">
+      <p className="font-mono text-xs text-[var(--text-secondary)]">
         [ ★ = 新建申请时使用的默认模板 ]
       </p>
 
       {/* New Resume modal */}
       {showNewModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--text-primary)]/30"
           onClick={() => setShowNewModal(false)}
         >
           <div
-            className="bg-white border-2 border-black shadow-[6px_6px_0px_0px_#000] w-full max-w-lg mx-4 p-6"
+            className="bg-[var(--surface)] border border-[var(--border)] shadow-[var(--shadow)] w-full max-w-lg mx-4 p-6"
             onClick={e => e.stopPropagation()}
           >
             <h2 className="font-serif text-xl font-bold mb-1">你想如何创建简历？</h2>
-            <p className="font-sans text-sm text-[#4B5563] mb-6">选择一种开始方式。</p>
+            <p className="font-sans text-sm text-[var(--text-secondary)] mb-6">选择一种开始方式。</p>
 
             <div className="grid grid-cols-2 gap-4">
               {/* Build with form */}
               <button
                 onClick={handleNewForm}
-                className="border-2 border-black p-5 text-left hover:bg-black hover:text-white group transition-colors"
+                className="border border-[var(--border)] p-5 text-left hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)] group transition-colors"
               >
                 <PenLine className="h-6 w-6 mb-3" />
                 <p className="font-sans font-semibold text-sm mb-1">表单填写</p>
-                <p className="font-sans text-xs text-[#4B5563] group-hover:text-white/80">
+                <p className="font-sans text-xs text-[var(--text-secondary)] group-hover:text-white/80">
                   逐步填写个人信息 — 推荐大多数用户使用
                 </p>
               </button>
@@ -222,11 +222,11 @@ export default function Resumes() {
               {/* Edit as markdown */}
               <button
                 onClick={handleNewMarkdown}
-                className="border-2 border-black p-5 text-left hover:bg-black hover:text-white group transition-colors"
+                className="border border-[var(--border)] p-5 text-left hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)] group transition-colors"
               >
                 <FileText className="h-6 w-6 mb-3" />
                 <p className="font-sans font-semibold text-sm mb-1">编辑 Markdown</p>
-                <p className="font-sans text-xs text-[#4B5563] group-hover:text-white/80">
+                <p className="font-sans text-xs text-[var(--text-secondary)] group-hover:text-white/80">
                   直接编写或粘贴 Markdown — 适合已有模板的进阶用户
                 </p>
               </button>
@@ -235,7 +235,7 @@ export default function Resumes() {
             <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setShowNewModal(false)}
-                className="font-mono text-xs uppercase tracking-wider text-[#4B5563] hover:text-black"
+                className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 取消
               </button>

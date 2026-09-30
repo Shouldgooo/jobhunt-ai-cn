@@ -32,6 +32,8 @@ const {
   getAllApplications,
   getApplicationById,
   updateApplication,
+  updateAllApplicationStatuses,
+  isValidStatus,
   deleteApplication,
   getAllTemplates,
   getTemplateById,
@@ -55,7 +57,8 @@ api.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // ─── Analyze — Stage 1 ────────────────────────────────────────────────────────
 
 api.post('/analyze', async (req, res) => {
-  const { job_title, company, location, jd, url, source, theme, resume_template_id, generate_cover_letter } = req.body;
+  const { jd, resume_template_id, generate_cover_letter } = req.body;
+  const stream = /ndjson/i.test(req.headers.accept || '') || req.query.stream === '1';
 
   if (!jd || !String(jd).trim()) {
     return res.status(400).json({ error: 'jd is required' });
@@ -66,28 +69,18 @@ api.post('/analyze', async (req, res) => {
     return res.status(500).json({ error: 'Gemini API key not configured — set GEMINI_API_KEY in backend/.env' });
   }
 
-  const { parseJd, mergeJobMeta } = require('./jd-parser');
   const { generationKey, tryStartGeneration, finishGeneration } = require('./generation-lock');
-  const parsed = parseJd(jd);
-  const hints = {
-    job_title: job_title || parsed.job_title,
-    company:   company   || parsed.company,
-    location:  location  || parsed.location,
-  };
+  const { runAnalyzeGeneration, isCancelledError } = require('./analyze-flow');
+  const { attachClientDisconnectAbort } = require('./generation-abort');
+  const { isUserCancelledError } = require('./tailor');
 
-  // Theme: explicit in request → user.config.js default → 'classic'
-  const resolvedTheme = (theme && isValidTheme(theme)) ? theme : (getUserConfig().theme || 'classic');
-
-  // Resolve base markdown: from template if specified, else tailor.js reads user/cv.md
-  let baseMd;
   let resolvedTemplateId = resume_template_id || null;
   if (resume_template_id) {
     const tpl = getTemplateById(resume_template_id);
     if (!tpl) return res.status(404).json({ error: 'Resume template not found' });
-    baseMd = tpl.markdown;
   } else {
     const defaultTpl = getDefaultTemplate();
-    if (defaultTpl) { baseMd = defaultTpl.markdown; resolvedTemplateId = defaultTpl.id; }
+    if (defaultTpl) resolvedTemplateId = defaultTpl.id;
   }
 
   const doCoverLetter = generate_cover_letter !== false;
@@ -100,58 +93,74 @@ api.post('/analyze', async (req, res) => {
     return res.status(409).json({ error: '生成正在进行中，请勿重复提交。' });
   }
 
-  try {
-    const { generateApplication } = require('./tailor');
+  const ac = new AbortController();
+  const detachAbort = attachClientDisconnectAbort(req, res, ac);
 
-    const generated = await generateApplication({
-      jd,
-      baseMd,
-      generateCoverLetter: doCoverLetter,
-      hints,
-    });
-
-    const meta = mergeJobMeta(hints, parsed, generated);
-    if (!meta.job_title || !meta.company) {
-      return res.status(422).json({
-        error: '无法识别职位名称或公司，请手动填写后重试。',
-        job_title: meta.job_title,
-        company:   meta.company,
-        location:  meta.location,
-      });
+  const writeEvent = (obj) => {
+    if (res.writableEnded) return;
+    res.write(`${JSON.stringify(obj)}\n`);
+    if (obj.type === 'progress') {
+      console.log(`[stream] progress sent stage=${obj.stage}`);
     }
+  };
 
-    const id = insertApplication({
-      created_at:         new Date().toISOString(),
-      company:            meta.company,
-      job_title:          meta.job_title,
-      location:           meta.location,
-      url:                url    || '',
-      source:             source || 'other',
-      jd_text:            jd,
-      stack_used:         generated.job_title || meta.job_title,
-      fit_score:          generated.fit_score,
-      resume_md:          generated.markdown,
-      cover_md:           generated.cover_md || '',
-      status:             'not_started',
-      theme:              resolvedTheme,
-      resume_template_id: resolvedTemplateId,
+  if (stream) {
+    console.log('[stream] client connected');
+    res.status(200);
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  }
+
+  try {
+    const { application } = await runAnalyzeGeneration({
+      body: req.body,
+      signal: ac.signal,
+      onProgress: stream ? (evt) => writeEvent(evt) : undefined,
+      isValidTheme,
+      getUserConfig,
     });
 
-    res.json({
-      id,
-      fit_score:              generated.fit_score,
-      job_title:              meta.job_title,
-      company:                meta.company,
-      location:               meta.location,
-      detected_skills:        generated.detected_skills,
-      cover_letter_available: generated.cover_letter_available,
-      theme:                  resolvedTheme,
-    });
+    if (stream) {
+      if (!res.writableEnded) res.end();
+      console.log('[stream] response finished normally');
+    } else {
+      res.json(application);
+    }
   } catch (err) {
+    if (isCancelledError(err) || ac.signal.aborted) {
+      const userCancelled = isUserCancelledError(err);
+      if (stream && !res.writableEnded) {
+        if (userCancelled) {
+          writeEvent({ type: 'cancelled', progress: 0, message: '生成已取消' });
+        } else {
+          writeEvent({ type: 'error', progress: 0, status: 499, error: '连接已中断，生成未完成。' });
+        }
+        res.end();
+      } else if (!res.headersSent) {
+        res.status(499).json({
+          error: userCancelled ? '生成已取消' : '连接已中断，生成未完成。',
+        });
+      }
+      return;
+    }
     console.error('[/api/analyze error]', err.message);
     const status = Number(err.statusCode);
-    res.status(status >= 400 && status < 600 ? status : 500).json({ error: err.message });
+    const code = status >= 400 && status < 600 ? status : 500;
+    if (stream && !res.writableEnded) {
+      writeEvent({ type: 'error', progress: 0, status: code, error: err.message });
+      res.end();
+    } else if (!res.headersSent) {
+      res.status(code).json({
+        error: err.message,
+        job_title: err.job_title,
+        company: err.company,
+        location: err.location,
+      });
+    }
   } finally {
+    detachAbort();
     finishGeneration(lockKey);
   }
 });
@@ -237,6 +246,55 @@ api.post('/applications/:id/evaluate', async (req, res) => {
   } catch (err) {
     console.error('[/api/evaluate error]', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Job follow-up Q&A ────────────────────────────────────────────────────────
+
+api.post('/applications/:id/ask', async (req, res) => {
+  const record = getApplicationById(Number(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Not found' });
+
+  const question = req.body && req.body.question;
+  if (typeof question !== 'string' || !question.trim()) {
+    return res.status(400).json({ error: 'question is required' });
+  }
+  if (!record.jd_text) {
+    return res.status(400).json({ error: '没有职位描述，无法回答岗位问题。' });
+  }
+
+  const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  if (provider !== 'ollama' && !process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Gemini API key not configured — set GEMINI_API_KEY in backend/.env' });
+  }
+
+  try {
+    const { answerJobQuestion, formatLlmError } = require('./job-qa');
+    const result = await answerJobQuestion({
+      company: record.company,
+      jobTitle: record.job_title,
+      jd: record.jd_text,
+      resumeMd: record.resume_md,
+      coverMd: record.cover_md,
+      qaThread: record.qa_thread,
+      question,
+    });
+    updateApplication(record.id, { qa_thread: JSON.stringify(result.qa_thread) });
+    const saved = getApplicationById(record.id);
+    res.json({
+      answer: result.answer,
+      qa_thread: result.qa_thread,
+      resume_md: saved.resume_md,
+      cover_md: saved.cover_md,
+      jd_text: saved.jd_text,
+      change_summary: saved.change_summary,
+    });
+  } catch (err) {
+    const { formatLlmError } = require('./job-qa');
+    const formatted = formatLlmError(err);
+    const status = Number(formatted.statusCode) >= 400 ? formatted.statusCode : (err.statusCode || 500);
+    console.error('[/api/applications/:id/ask error]', formatted.message);
+    res.status(status).json({ error: formatted.message });
   }
 });
 
@@ -584,6 +642,19 @@ api.post('/resume-templates/build-preview', (req, res) => {
 api.get('/applications', (_req, res) => {
   try {
     res.json(getAllApplications());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+api.patch('/applications/status/all', (req, res) => {
+  const status = req.body && req.body.status;
+  if (!isValidStatus(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  try {
+    const updated = updateAllApplicationStatuses(status);
+    res.json({ success: true, updated, status });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

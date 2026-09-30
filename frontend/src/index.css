@@ -6,58 +6,107 @@
 
 @layer base {
   :root {
-    --background:          60 21% 93%;   /* #F0F0E8 canvas */
-    --foreground:          0 0% 0%;      /* #000000 ink */
-    --card:                0 0% 100%;
-    --card-foreground:     0 0% 0%;
-    --primary:             221 73% 47%;  /* #1D4ED8 hyper blue */
-    --primary-foreground:  0 0% 100%;
-    --secondary:           0 0% 95%;
-    --secondary-foreground:0 0% 0%;
-    --muted:               0 0% 95%;
-    --muted-foreground:    220 9% 46%;   /* #4B5563 steel grey */
-    --accent:              0 0% 90%;
-    --accent-foreground:   0 0% 0%;
-    --destructive:         0 72% 51%;    /* #DC2626 alert red */
-    --destructive-foreground: 0 0% 100%;
-    --border:              0 0% 0%;      /* #000000 */
-    --input:               0 0% 0%;
-    --ring:                221 73% 47%;
-    --radius:              0px;          /* no rounding */
+    --bg: #F7F3F2;
+    --surface: #FFFCFB;
+    --sidebar: #F1E7E5;
 
-    /* status badge colours — brutalist */
-    --status-analyzed-bg:   0 0% 90%;
-    --status-analyzed-fg:   0 0% 0%;
-    --status-exported-bg:   214 100% 93%;
-    --status-exported-fg:   221 73% 37%;
-    --status-applied-bg:    221 73% 47%;
-    --status-applied-fg:    0 0% 100%;
-    --status-interview-bg:  142 72% 29%;
-    --status-interview-fg:  0 0% 100%;
-    --status-rejected-bg:   0 72% 51%;
-    --status-rejected-fg:   0 0% 100%;
+    --primary: #B48C8A;
+    --primary-hover: #A77E7C;
+    --primary-dark: #8B6D6C;
+    --primary-soft: #E6D6D5;
+    --secondary: #CFAFAE;
+
+    --text-primary: #4E3D3D;
+    --text-secondary: #766665;
+    --text-muted: #9B8D8B;
+
+    --border: #E2D5D3;
+    --shadow: 0 2px 8px rgba(78, 61, 61, 0.06);
+    --radius: 12px;
+
+    --status-not-started-bg: #EEE8E6;
+    --status-not-started-fg: #766665;
+    --status-applied-bg: #E4EBE4;
+    --status-applied-fg: #3F5341;
+    --status-followed-bg: #EDE6D8;
+    --status-followed-fg: #5C4E38;
+    --status-interview-bg: #E8E4ED;
+    --status-interview-fg: #4F4760;
+    --status-rejected-bg: #F0E4E3;
+    --status-rejected-fg: #8B6D6C;
+
+    --chart-1: #B48C8A;
+    --chart-2: #8B6D6C;
+    --chart-3: #CFAFAE;
+    --chart-track: #F1E7E5;
+
+    /* shadcn / Tailwind hsl() bridge */
+    --background: 12 22% 96%;
+    --foreground: 0 12% 27%;
+    --card: 15 100% 99%;
+    --card-foreground: 0 12% 27%;
+    --primary-hsl: 2 13% 48%;
+    --primary-foreground: 15 100% 99%;
+    --secondary-hsl: 3 26% 75%;
+    --secondary-foreground: 0 12% 27%;
+    --muted: 10 27% 92%;
+    --muted-foreground: 3 8% 43%;
+    --accent: 6 27% 87%;
+    --accent-foreground: 0 12% 27%;
+    --destructive: 2 13% 48%;
+    --destructive-foreground: 15 100% 99%;
+    --input: 8 18% 86%;
+    --ring: 3 26% 62%;
   }
 }
 
 @layer base {
-  * { @apply border-border box-border; }
+  * { @apply box-border; }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    background: var(--bg);
+    color: var(--text-primary);
     font-family: 'Inter', Helvetica, Arial, sans-serif;
     font-size: 14px;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* Serif headings */
   h1, h2, h3, h4 {
     font-family: Georgia, 'Times New Roman', Times, serif;
     letter-spacing: -0.02em;
+    color: var(--text-primary);
   }
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+@layer components {
+  .jh-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .jh-panel-title {
+    font-family: 'Inter', Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+}
+
+@keyframes gen-progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.gen-progress-waiting {
+  animation: gen-progress-pulse 1.4s ease-in-out infinite;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #000; }
-::-webkit-scrollbar-thumb:hover { background: #333; }
+::-webkit-scrollbar-thumb { background: var(--secondary); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }

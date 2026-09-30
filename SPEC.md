@@ -43,13 +43,25 @@ Job-Apply-Bot/
 │       │   ├── Resumes.tsx
 │       │   ├── ResumeEditorPage.tsx
 │       │   └── ResumeBuilderPage.tsx
-│       ├── components/            # AppSidebar + shadcn/ui components
-│       └── lib/api.ts             # Typed fetch wrapper for all /api calls
+│       ├── components/            # AppSidebar, GenerationProgress, AnalysisPanel, JobQaPanel + shadcn/ui components
+│       └── lib/
+│           ├── api.ts             # Typed fetch wrapper for all /api calls (NDJSON analyze stream)
+│           ├── new-application.ts # New Application defaults + post-success PDF download helpers
+│           ├── analysis-summary.ts # Editor 分析 tab: local Chinese summary from verified data
+│           ├── bulk-status.ts     # History bulk “已申请” confirm/loading helpers (no LLM)
+│           ├── job-qa.ts          # Editor follow-up Q&A helpers
+│           ├── analyze-stream.ts  # Analyze progress events + AbortError helpers
+│           └── change-summary.ts  # Parse stored verified change summary JSON
 ├── backend/
 │   ├── server.js                  # Express (port 3000) — all routes under /api
+│   ├── analyze-flow.js            # Analyze pipeline: real-stage progress + AbortSignal + save
 │   ├── tailor.js                  # Resume tailoring + one-shot generateApplication (Gemini or Ollama)
 │   ├── jd-parser.js               # Local JD title/company/location extraction (no LLM; strips **bold** labels)
+│   ├── jd-clean.js                # Conservative AI-only JD chrome cleaner (raw JD still stored)
 │   ├── generation-lock.js         # In-flight duplicate generation guard
+│   ├── generation-abort.js        # Abort Gemini only on real client disconnect (not req close)
+│   ├── change-summary.js          # Local original→generated resume/cover diff (no LLM)
+│   ├── job-qa.js                  # Employer follow-up answers from saved JD/resume/cover (one LLM call)
 │   ├── coverletter.js             # Cover letter template fill (used after the single LLM call)
 │   ├── evaluator.js               # Job fit evaluation
 │   ├── renderer.js                # Oh My CV markdown → HTML
@@ -77,6 +89,8 @@ Stage 1 — POST /api/analyze
     → same JSON includes analysis, tailored resume, job metadata, optional cover-letter fills
     → coverletter.js fills template.md locally from that JSON (no second LLM call)
     → markdown saved to SQLite
+    → Accept: application/x-ndjson streams real-stage progress then `{ type: "complete", application }`
+    → 取消生成 aborts the fetch; backend watches res.close / req.aborted (not req.close) and cancels axios; skips DB write
     → returns: fit_score, job_title, company, location, detected_skills, cover_letter_available
 
 Stage 2 — user reviews / edits markdown in browser
@@ -94,15 +108,17 @@ Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/analyze` | Stage 1: one LLM call → save analysis + resume + optional cover letter |
+| POST | `/api/analyze` | Stage 1: one LLM call → NDJSON progress (or JSON) → save analysis + resume + optional cover letter |
 | GET | `/api/applications` | All application records |
 | POST | `/api/applications` | Create application without AI |
 | GET | `/api/applications/:id` | Single application record |
 | PATCH | `/api/applications/:id` | Update any allowed field |
+| PATCH | `/api/applications/status/all` | One SQL `UPDATE` of `applications.status` only; body `{ status }` must be a valid status; `{ success, updated, status }` |
 | DELETE | `/api/applications/:id` | Delete record |
 | GET | `/api/applications/:id/pdf?type=resume\|coverletter` | On-demand PDF stream |
 | POST | `/api/applications/:id/rescore` | Re-score fit against JD via LLM |
 | POST | `/api/applications/:id/evaluate` | Run full job fit evaluation |
+| POST | `/api/applications/:id/ask` | Answer an employer follow-up question from the saved JD/resume/cover/profile; persist `qa_thread`; does not rewrite documents |
 | POST | `/api/preview` | Render markdown → HTML (live preview) |
 | GET | `/api/profile` | Read `user/profile.md` |
 | PUT | `/api/profile` | Save `user/profile.md` |
@@ -137,7 +153,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"`. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {
@@ -166,13 +182,19 @@ Gemini call-count logs (no API key / CV / JD / PII):
 
 Retries log `logical generation request: 1` and `HTTP/API attempts: N`.
 
-`POST /api/analyze` returns Gemini 429 / 503 / 404 as those HTTP statuses (not a generic 500) when `formatLlmError` attaches `statusCode`. Concurrent duplicate generation returns 409.
+`POST /api/analyze` returns Gemini 429 / 503 / 404 as those HTTP statuses (not a generic 500) when `formatLlmError` attaches `statusCode`. Concurrent duplicate generation returns 409. Clients that send `Accept: application/x-ndjson` receive newline-delimited events (`progress` / `complete` / `error` / `cancelled`) instead of a single JSON body; HTTP 200 is used for the stream and logical errors arrive as `{ type: "error", status, error }`. Progress percentages map real pipeline stages only (5 accepted → 10 validating → 20 parsing → 30 preparing → 35 sending/generating → 85 received → 90 validating result → 95 saving → 100 complete). While Gemini is in flight the percentage stays at 35. `callLLM` passes `AbortSignal` to axios so the Gemini/Ollama HTTP request is aborted when the response connection dies (`res.close` / `req.aborted`). A finished POST body (`req.close`) does not abort generation. The UI shows 生成已取消 only when the user clicks 取消生成; an unexpected disconnect shows 连接已中断，生成未完成。 Aborted runs do not insert an application and `finishGeneration` always releases the in-memory lock.
+
+After the single Gemini generation, `change-summary.js` locally diffs the original resume (`baseMd` / `user/cv.md`) against the saved markdown. Only verified textual diffs are stored in `applications.change_summary`. JD keywords are attached only when they occur in both the actual diff and the JD. Gemini-claimed blurbs are ignored. Comparison failure never blocks save; the UI then shows 暂时无法生成可靠的改动概要。 Old rows with a null `change_summary` stay valid and are not regenerated.
+
+`POST /api/applications/:id/ask` is a later, optional LLM call. It drafts an answer to an employer follow-up question using the stored JD, tailored resume, cover letter, profile, and prior `qa_thread`. It does not regenerate or rewrite resume/cover/JD/change_summary. Answers must stay factually grounded in those sources.
 
 Tailoring rules (enforced via `prompts/tailor.md`):
-- **Rewrite:** Summary (inject JD keywords + apply archetype framing); Skills (bold + reorder)
-- **Reorder only:** Experience bullets within each role; Projects section order
-- **Never change:** Bullet text content, company names, dates, metrics, education, YAML front matter
-- **Never invent:** Skills or experience not in the CV
+- **Priority:** Summary → Work Experience → Skills → Projects → other
+- **Rewrite:** Summary; Work Experience bullets (real responsibilities only, JD-relevant first); Skills (bold + reorder); optional project-bullet rewrite
+- **Titles:** official title stays unless CV/profile supports `Official Title | Functional Focus`
+- **Never change:** employer names, dates, locations, education, existing metrics, YAML front matter
+- **Never invent:** employers, titles, technologies, achievements, or convert projects into employment
+- Suspicious work-experience additions are stored in `change_summary.unsupported_experience` and shown for review
 
 Supports Gemini (default) and Ollama — switched via `LLM_PROVIDER` env var.
 
@@ -203,6 +225,7 @@ Placeholders:
 ### evaluator.js
 
 Runs a condensed job fit evaluation using `prompts/_shared.md` + `user/profile.md` + `prompts/evaluate.md`.
+The Editor 分析 tab does **not** call this endpoint; it renders a local Chinese summary from persisted `fit_score` and verified `change_summary`.
 
 Returns and saves to DB:
 ```json
@@ -234,6 +257,7 @@ Converts HTML to PDF via Puppeteer (`page.setContent()` + `page.pdf()`).
 
 - `exportResumePDF(markdown, theme)` → Buffer
 - `exportCoverLetterPDF(markdown)` → Buffer
+- If `PUPPETEER_CACHE_DIR` points at an empty cache (e.g. Cursor sandbox), fall back to `~/.cache/puppeteer` when that directory already has Chrome. No Gemini calls.
 
 Both use `printBackground: true`. PDFs are streamed directly to the browser — not saved to disk.
 
@@ -259,6 +283,8 @@ Both use `printBackground: true`. PDFs are streamed directly to the browser — 
 | fit_score | INTEGER | 0–100 |
 | resume_md | TEXT | tailored resume markdown |
 | cover_md | TEXT | generated cover letter markdown |
+| change_summary | TEXT | JSON of locally verified original→generated diffs; null on older rows |
+| qa_thread | TEXT | JSON array of `{role, content, created_at}` follow-up Q&A; default `[]` |
 | status | TEXT | see status values below |
 | theme | TEXT | e.g. `classic` |
 | status_log | TEXT | JSON array of `{status, changed_at}` |
@@ -295,13 +321,13 @@ On first run (table empty), `db.js` imports `user/cv.md` as `"Master Resume"` wi
 
 **Stack:** React + Vite + TypeScript + Tailwind CSS + shadcn/ui
 
-**UI language:** Simplified Chinese. API routes, DB field values (`status`, `source`, `theme`), and JSON keys stay in English. Display labels are mapped in `frontend/src/lib/labels.ts`.
+**UI language:** Simplified Chinese. API routes, DB field values (`status`, `source`, `theme`), and JSON keys stay in English. Display labels are mapped in `frontend/src/lib/labels.ts`. App chrome uses a Morandi dusty-rose token set in `frontend/src/index.css` (`--bg` `#F7F3F2`, `--surface` `#FFFCFB`, `--primary` `#B48C8A`, `--primary-dark` `#8B6D6C`). Resume PDF themes are unchanged.
 
 **Pages:**
-- `NewApplication` — paste JD, run AI analysis; Resume Template dropdown auto-selects the default template
-- `History` — table of all past applications with inline status editing
-- `Editor` — split markdown editor + live preview, PDF download
-- `Dashboard` — KPIs, status pipeline chart, activity heatmap, follow-up list
+- `NewApplication` — paste JD, run AI analysis with a real-stage progress panel, informational elapsed wait time, and 取消生成 (AbortController); no automatic time-based abort; Resume Template dropdown auto-selects the default template. Default AI options: 简历 on, 求职信 off. After successful save, stay on the page with 下载简历 (and 下载求职信 if generated) via existing `GET /api/applications/:id/pdf`, plus 查看分析结果 → `/editor/:id`
+- `History` — table of all past applications with inline status editing, always-visible row actions (download/edit/delete), plus 全部标记为已申请 (confirm dialog → one bulk status PATCH, no LLM)
+- `Editor` — split markdown editor + live preview, PDF download; 分析 tab is a compact Chinese summary from persisted `fit_score` + verified `change_summary` / optional evidence matrix (no extra Gemini call); resume/cover tabs still show the verified change banner; 追问 tab uses `POST /api/applications/:id/ask`
+- `Dashboard` — header + 新建申请; five stat cards; 申请状态 / 待跟进; 最近申请 / 本周动态; 52-week heatmap
 - `Style` — live CSS editor with theme switcher
 - `Settings` — tabs for CV, Profile, and Cover Letter Template editors
 - `Resumes` — manage saved resume templates
@@ -331,7 +357,7 @@ GEMINI_MODEL=gemini-3.6-flash    # Gemini model name
 LLM_PROVIDER=gemini              # "gemini" (default) or "ollama"
 OLLAMA_BASE_URL=http://localhost:11434   # Ollama base URL (if using Ollama)
 OLLAMA_MODEL=gemma3:12b          # Ollama model (if using Ollama)
-LLM_TIMEOUT_MS=120000            # LLM request timeout in ms
+LLM_TIMEOUT_MS=120000            # optional Ollama axios timeout; unset = no timeout
 PORT=3000                        # backend port; Vite /api proxy reads this from backend/.env
 ```
 

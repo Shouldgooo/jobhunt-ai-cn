@@ -10,16 +10,16 @@ export default function DemoCloneModal({ open, onClose }: Props) {
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[var(--text-primary)]/35 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000] w-full max-w-sm p-6 space-y-4"
+        className="bg-[var(--surface)] border border-[var(--border)] shadow-[var(--shadow)] w-full max-w-sm p-6 space-y-4"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-blue-700 flex-shrink-0" />
-          <h2 className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">只读演示</h2>
+          <div className="w-3 h-3 rounded-sm bg-[var(--primary)] flex-shrink-0" />
+          <h2 className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">只读演示</h2>
         </div>
 
         <p className="font-sans text-sm leading-relaxed">
@@ -32,7 +32,7 @@ export default function DemoCloneModal({ open, onClose }: Props) {
         <div className="flex gap-2 justify-end pt-1">
           <button
             onClick={onClose}
-            className="font-mono text-xs uppercase tracking-wider text-[#4B5563] hover:text-black transition-colors px-3 py-1.5"
+            className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors px-3 py-1.5"
           >
             关闭
           </button>
@@ -40,7 +40,7 @@ export default function DemoCloneModal({ open, onClose }: Props) {
             href={DEMO_GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-black text-white font-mono text-xs uppercase tracking-wider px-4 py-1.5 hover:bg-[#4B5563] transition-colors"
+            className="inline-flex items-center gap-2 bg-[var(--primary-dark)] text-[var(--surface)] font-mono text-xs uppercase tracking-wider px-4 py-1.5 hover:bg-[var(--primary)] transition-colors"
             onClick={onClose}
           >
             在 GitHub 查看 →

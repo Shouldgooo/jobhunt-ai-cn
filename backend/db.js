@@ -22,6 +22,7 @@ db.exec(`
     fit_score  INTEGER,
     resume_md  TEXT,
     cover_md   TEXT,
+    change_summary TEXT,
     status     TEXT DEFAULT 'analyzed'
   )
 `);
@@ -45,6 +46,8 @@ for (const col of [
   "status_log TEXT DEFAULT '[]'", "follow_up INTEGER DEFAULT 0", 'resume_template_id INTEGER',
   'eval_score INTEGER', 'eval_recommendation TEXT', 'eval_archetype TEXT', 'eval_review TEXT',
   'location TEXT',
+  'change_summary TEXT',
+  "qa_thread TEXT DEFAULT '[]'",
 ]) {
   try { db.exec(`ALTER TABLE applications ADD COLUMN ${col}`); } catch { /* already exists */ }
 }
@@ -84,10 +87,10 @@ function insertApplication(data) {
   const status_log = JSON.stringify([{ status: data.status, changed_at: data.created_at }]);
   return db.prepare(`
     INSERT INTO applications
-      (created_at, company, job_title, location, url, source, jd_text, stack_used, fit_score, resume_md, cover_md, status, theme, status_log, resume_template_id)
+      (created_at, company, job_title, location, url, source, jd_text, stack_used, fit_score, resume_md, cover_md, status, theme, status_log, resume_template_id, change_summary)
     VALUES
-      (:created_at, :company, :job_title, :location, :url, :source, :jd_text, :stack_used, :fit_score, :resume_md, :cover_md, :status, :theme, :status_log, :resume_template_id)
-  `).run({ resume_template_id: null, location: '', ...data, status_log }).lastInsertRowid;
+      (:created_at, :company, :job_title, :location, :url, :source, :jd_text, :stack_used, :fit_score, :resume_md, :cover_md, :status, :theme, :status_log, :resume_template_id, :change_summary)
+  `).run({ resume_template_id: null, location: '', change_summary: null, ...data, status_log }).lastInsertRowid;
 }
 
 function getAllApplications() {
@@ -101,7 +104,7 @@ function getApplicationById(id) {
 function updateApplication(id, fields) {
   const ALLOWED = ['created_at', 'company', 'job_title', 'location', 'url', 'source',
                    'jd_text', 'stack_used', 'fit_score', 'status', 'resume_md', 'cover_md', 'theme', 'status_log', 'follow_up',
-                   'eval_score', 'eval_recommendation', 'eval_archetype', 'eval_review'];
+                   'eval_score', 'eval_recommendation', 'eval_archetype', 'eval_review', 'qa_thread'];
   const pairs = Object.entries(fields).filter(([k]) => ALLOWED.includes(k));
   if (!pairs.length) return false;
 
@@ -127,6 +130,23 @@ function updateApplication(id, fields) {
 // Kept for backward compatibility (used by tests)
 function updateApplicationStatus(id, status) {
   return db.prepare('UPDATE applications SET status = ? WHERE id = ?').run(status, id).changes > 0;
+}
+
+const VALID_STATUSES = Object.freeze(['not_started', 'applied', 'followed_up', 'interviewed', 'rejected']);
+
+function isValidStatus(status) {
+  return VALID_STATUSES.includes(status);
+}
+
+/** One SQL UPDATE of applications.status only. Does not touch any other column. */
+function updateAllApplicationStatuses(status) {
+  if (!isValidStatus(status)) {
+    const err = new Error('Invalid status');
+    err.code = 'INVALID_STATUS';
+    throw err;
+  }
+  db.prepare('UPDATE applications SET status = ?').run(status);
+  return Number(db.prepare('SELECT COUNT(*) AS c FROM applications').get().c);
 }
 
 function deleteApplication(id) {
@@ -190,6 +210,9 @@ module.exports = {
   getApplicationById,
   updateApplication,
   updateApplicationStatus,
+  updateAllApplicationStatuses,
+  isValidStatus,
+  VALID_STATUSES,
   deleteApplication,
   getAllTemplates,
   getTemplateById,

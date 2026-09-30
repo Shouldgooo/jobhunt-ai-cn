@@ -36,9 +36,9 @@ function ScaledPreview({ html, loading }: { html: string; loading: boolean }) {
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[#F0F0E8] p-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[var(--bg)] p-4">
       {loading && (
-        <div className="flex justify-center py-6 text-[#4B5563]">
+        <div className="flex justify-center py-6 text-[var(--text-secondary)]">
           <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       )}
@@ -49,7 +49,7 @@ function ScaledPreview({ html, loading }: { html: string; loading: boolean }) {
             srcDoc={html}
             title="样式预览"
             onLoad={handleIframeLoad}
-            className="bg-white border-2 border-black shadow-[8px_8px_0px_0px_#000000] origin-top-left"
+            className="bg-[var(--surface)] border border-[var(--border)] shadow-[var(--shadow)] origin-top-left"
             style={{
               width:           A4_W,
               height:          iframeH,
@@ -61,7 +61,7 @@ function ScaledPreview({ html, loading }: { html: string; loading: boolean }) {
         </div>
       )}
       {!loading && !html && (
-        <div className="flex h-full items-center justify-center font-mono text-xs uppercase tracking-wider text-[#4B5563]">
+        <div className="flex h-full items-center justify-center font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">
           [ 暂无预览 ]
         </div>
       )}
@@ -142,8 +142,8 @@ export default function Style() {
       <SidebarLayout>
         <div className="flex flex-1 items-center justify-center">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-700" />
-            <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">[ 加载中… ]</span>
+            <div className="w-3 h-3 rounded-sm bg-[var(--primary)]" />
+            <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">[ 加载中… ]</span>
           </div>
         </div>
       </SidebarLayout>
@@ -155,31 +155,31 @@ export default function Style() {
       <div className="flex flex-col flex-1 overflow-hidden">
 
         {/* ── Toolbar ── */}
-        <div className="border-b-2 border-black bg-white px-4 h-12 flex items-center justify-between flex-shrink-0">
+        <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 h-12 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-1">
-            <span className="font-mono text-xs text-[#4B5563] mr-2 hidden sm:inline uppercase tracking-wider">模板：</span>
+            <span className="font-mono text-xs text-[var(--text-secondary)] mr-2 hidden sm:inline uppercase tracking-wider">模板：</span>
             {templates.map(t => (
               <button
                 key={t.name}
                 onClick={() => handleSelectTemplate(t)}
                 className={`px-3 py-1 font-mono text-xs uppercase tracking-wider border-2 transition-all ${
                   activeName === t.name
-                    ? 'bg-black text-[#F0F0E8] border-black'
-                    : 'bg-transparent text-[#4B5563] border-black hover:bg-black hover:text-[#F0F0E8]'
+                    ? 'bg-[var(--primary-soft)] text-[var(--text-primary)] border-[var(--border)]'
+                    : 'bg-transparent text-[var(--text-secondary)] border-[var(--border)] hover:bg-[var(--primary-soft)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 {THEME_LABELS[t.name] || t.label}
               </button>
             ))}
             {activeName === null && css && (
-              <span className="font-mono text-xs text-[#4B5563] italic ml-2">自定义</span>
+              <span className="font-mono text-xs text-[var(--text-secondary)] italic ml-2">自定义</span>
             )}
           </div>
 
           <div className="flex items-center gap-3">
-            {error && <span className="font-mono text-xs text-red-600 hidden sm:inline uppercase">{error}</span>}
+            {error && <span className="font-mono text-xs text-[var(--text-primary)] hidden sm:inline uppercase">{error}</span>}
             {saved && (
-              <span className="flex items-center gap-1 font-mono text-xs text-green-700 uppercase tracking-wider">
+              <span className="flex items-center gap-1 font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">
                 <Check className="h-3.5 w-3.5" /> 已保存
               </span>
             )}
@@ -191,15 +191,15 @@ export default function Style() {
         </div>
 
         {/* ── Mobile panel toggle ── */}
-        <div className="sm:hidden flex border-b-2 border-black bg-[#F0F0E8] flex-shrink-0">
+        <div className="sm:hidden flex border-b border-[var(--border)] bg-[var(--bg)] flex-shrink-0">
           {(['editor', 'preview'] as PanelTab[]).map(p => (
             <button
               key={p}
               onClick={() => { setPanelTab(p); if (p === 'preview') loadPreview(css, activeName ?? undefined) }}
               className={`flex-1 py-2 font-mono text-xs uppercase tracking-wider transition-colors ${
                 panelTab === p
-                  ? 'bg-white text-black border-b-2 border-black -mb-px'
-                  : 'text-[#4B5563]'
+                  ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b border-[var(--border)] -mb-px'
+                  : 'text-[var(--text-secondary)]'
               }`}
             >
               {PANEL_LABELS[p] ?? p}
@@ -211,15 +211,15 @@ export default function Style() {
         <div className="flex flex-1 overflow-hidden">
 
           {/* CSS editor */}
-          <div className={`flex flex-col border-r-2 border-black bg-white ${
+          <div className={`flex flex-col border-r border-[var(--border)] bg-[var(--surface)] ${
             panelTab === 'preview' ? 'hidden' : 'flex-1'
           } sm:flex sm:flex-1`}>
-            <div className="px-4 py-2 border-b border-black bg-[#F0F0E8] flex items-center gap-2 flex-shrink-0">
-              <div className="w-2.5 h-2.5 bg-blue-700" />
-              <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">CSS</span>
+            <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg)] flex items-center gap-2 flex-shrink-0">
+              <div className="w-2.5 h-2.5 rounded-sm bg-[var(--primary)]" />
+              <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">CSS</span>
             </div>
             <textarea
-              className="flex-1 resize-none px-4 py-3 font-mono text-xs leading-relaxed bg-white focus:outline-none"
+              className="flex-1 resize-none px-4 py-3 font-mono text-xs leading-relaxed bg-[var(--surface)] focus:outline-none"
               spellCheck={false}
               value={css}
               onChange={e => handleCssChange(e.target.value)}
@@ -230,14 +230,14 @@ export default function Style() {
           <div className={`flex flex-col ${
             panelTab === 'editor' ? 'hidden' : 'flex-1'
           } sm:flex sm:flex-1`}>
-            <div className="px-4 py-2 border-b border-black bg-[#F0F0E8] flex items-center justify-between flex-shrink-0">
+            <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg)] flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 bg-green-700" />
-                <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">预览</span>
+                <div className="w-2.5 h-2.5 rounded-sm bg-[var(--primary)]" />
+                <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">预览</span>
               </div>
               <button
                 onClick={() => loadPreview(css, activeName ?? undefined)}
-                className="text-[#4B5563] hover:text-black transition-colors"
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 title="刷新"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${loadingPreview ? 'animate-spin' : ''}`} />

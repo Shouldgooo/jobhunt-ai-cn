@@ -22,7 +22,7 @@ function Field({ label, value, onChange, placeholder = '', optional = false }: {
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">
+      <label className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">
         {label}{optional && <span className="ml-1 normal-case">（选填）</span>}
       </label>
       <Input
@@ -39,13 +39,13 @@ function Field({ label, value, onChange, placeholder = '', optional = false }: {
 
 function SectionHeader({ title, onAdd, addLabel }: { title: string; onAdd?: () => void; addLabel?: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-black pb-1 mb-3">
+    <div className="flex items-center justify-between border-b border-[var(--border)] pb-1 mb-3">
       <span className="font-mono text-xs uppercase tracking-widest font-bold">{title}</span>
       {onAdd && (
         <button
           type="button"
           onClick={onAdd}
-          className="font-mono text-xs uppercase tracking-wider text-[#4B5563] hover:text-black flex items-center gap-1"
+          className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1"
         >
           <Plus className="h-3 w-3" /> {addLabel || '添加'}
         </button>
@@ -182,16 +182,16 @@ export default function ResumeBuilderPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="flex h-screen overflow-hidden bg-[var(--surface)]">
 
       {/* ── Left: form ── */}
-      <div className="w-1/2 flex flex-col border-r-2 border-black overflow-hidden">
+      <div className="w-1/2 flex flex-col border-r border-[var(--border)] overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b-2 border-black flex-shrink-0">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
           <button
             onClick={() => navigate('/resumes')}
-            className="text-[#4B5563] hover:text-black"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -206,8 +206,8 @@ export default function ResumeBuilderPage() {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
 
           {error && (
-            <div className="border-2 border-red-600 bg-red-100 px-3 py-2">
-              <p className="font-mono text-xs text-red-600 uppercase tracking-wider">{error}</p>
+            <div className="border border-[var(--border)] bg-neutral-200 px-3 py-2">
+              <p className="font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">{error}</p>
             </div>
           )}
 
@@ -235,7 +235,7 @@ export default function ResumeBuilderPage() {
               onChange={e => setSummary(e.target.value)}
               placeholder="有热情的工程师，擅长…"
               rows={3}
-              className="w-full border-2 border-black px-3 py-2 font-sans text-sm focus:outline-none focus:ring-2 focus:ring-black resize-y"
+              className="w-full border border-[var(--border)] px-3 py-2 font-sans text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y"
             />
           </div>
 
@@ -244,13 +244,13 @@ export default function ResumeBuilderPage() {
             <SectionHeader title="技能" onAdd={addSkill} addLabel="添加技能组" />
             <div className="space-y-3">
               {skills.map(s => (
-                <div key={s.id} className="border-2 border-black p-3 space-y-2">
+                <div key={s.id} className="border border-[var(--border)] p-3 space-y-2">
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
                       <Field label="分组名称" value={s.label} onChange={v => updateSkill(s.id, 'label', v)} placeholder="编程语言" />
                     </div>
                     {skills.length > 1 && (
-                      <button type="button" onClick={() => removeSkill(s.id)} className="mb-0.5 text-[#9CA3AF] hover:text-red-600">
+                      <button type="button" onClick={() => removeSkill(s.id)} className="mb-0.5 text-[#9CA3AF] hover:text-[var(--text-primary)]">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -266,11 +266,11 @@ export default function ResumeBuilderPage() {
             <SectionHeader title="工作经历" onAdd={addExp} addLabel="添加职位" />
             <div className="space-y-4">
               {experience.map((job, ji) => (
-                <div key={job.id} className="border-2 border-black p-3 space-y-3">
+                <div key={job.id} className="border border-[var(--border)] p-3 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-[#4B5563]">职位 {ji + 1}</span>
+                    <span className="font-mono text-xs text-[var(--text-secondary)]">职位 {ji + 1}</span>
                     {experience.length > 1 && (
-                      <button type="button" onClick={() => removeExp(job.id)} className="text-[#9CA3AF] hover:text-red-600">
+                      <button type="button" onClick={() => removeExp(job.id)} className="text-[#9CA3AF] hover:text-[var(--text-primary)]">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -282,7 +282,7 @@ export default function ResumeBuilderPage() {
                     <div />
                     <Field label="开始日期" value={job.start} onChange={v => updateExp(job.id, 'start', v)} placeholder="2022-01" />
                     <div className="flex flex-col gap-1">
-                      <label className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">结束日期</label>
+                      <label className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">结束日期</label>
                       <div className="flex items-center gap-2">
                         <Input
                           value={job.end}
@@ -305,7 +305,7 @@ export default function ResumeBuilderPage() {
                   </div>
                   {/* Bullets */}
                   <div>
-                    <span className="font-mono text-xs uppercase tracking-wider text-[#4B5563]">要点</span>
+                    <span className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)]">要点</span>
                     <div className="mt-1 space-y-1.5">
                       {job.bullets.map((b, bi) => (
                         <div key={bi} className="flex gap-2 items-center">
@@ -317,7 +317,7 @@ export default function ResumeBuilderPage() {
                             className="h-8 text-sm flex-1"
                           />
                           {job.bullets.length > 1 && (
-                            <button type="button" onClick={() => removeBullet(job.id, bi)} className="text-[#9CA3AF] hover:text-red-600 flex-shrink-0">
+                            <button type="button" onClick={() => removeBullet(job.id, bi)} className="text-[#9CA3AF] hover:text-[var(--text-primary)] flex-shrink-0">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           )}
@@ -326,7 +326,7 @@ export default function ResumeBuilderPage() {
                       <button
                         type="button"
                         onClick={() => addBullet(job.id)}
-                        className="font-mono text-xs uppercase tracking-wider text-[#4B5563] hover:text-black flex items-center gap-1 mt-1"
+                        className="font-mono text-xs uppercase tracking-wider text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 mt-1"
                       >
                         <Plus className="h-3 w-3" /> 添加要点
                       </button>
@@ -342,11 +342,11 @@ export default function ResumeBuilderPage() {
             <SectionHeader title="教育经历" onAdd={addEdu} addLabel="添加教育经历" />
             <div className="space-y-3">
               {education.map((edu, ei) => (
-                <div key={edu.id} className="border-2 border-black p-3 space-y-2">
+                <div key={edu.id} className="border border-[var(--border)] p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-[#4B5563]">条目 {ei + 1}</span>
+                    <span className="font-mono text-xs text-[var(--text-secondary)]">条目 {ei + 1}</span>
                     {education.length > 1 && (
-                      <button type="button" onClick={() => removeEdu(edu.id)} className="text-[#9CA3AF] hover:text-red-600">
+                      <button type="button" onClick={() => removeEdu(edu.id)} className="text-[#9CA3AF] hover:text-[var(--text-primary)]">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -377,7 +377,7 @@ export default function ResumeBuilderPage() {
                   <div className="w-28">
                     <Field label="日期" value={cert.date} onChange={v => updateCert(cert.id, 'date', v)} placeholder="2025-01" optional />
                   </div>
-                  <button type="button" onClick={() => removeCert(cert.id)} className="mb-0.5 text-[#9CA3AF] hover:text-red-600">
+                  <button type="button" onClick={() => removeCert(cert.id)} className="mb-0.5 text-[#9CA3AF] hover:text-[var(--text-primary)]">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
@@ -391,9 +391,9 @@ export default function ResumeBuilderPage() {
 
       {/* ── Right: live preview ── */}
       <div className="w-1/2 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-3 border-b-2 border-black flex-shrink-0">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--border)] flex-shrink-0">
           <span className="font-mono text-xs uppercase tracking-widest font-bold">预览</span>
-          {previewLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#4B5563]" />}
+          {previewLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-[var(--text-secondary)]" />}
         </div>
         <div className="flex-1 overflow-hidden">
           {preview ? (

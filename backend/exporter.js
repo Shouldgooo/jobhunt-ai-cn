@@ -4,8 +4,62 @@
 // PDFs are now generated on-demand via page.setContent() + page.pdf().
 // Oh My CV lifecycle is no longer managed here or in server.js.
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const puppeteer = require('puppeteer');
 const { renderResume, renderCoverLetter } = require('./renderer');
+
+const HOME_PUPPETEER_CACHE = path.join(os.homedir(), '.cache', 'puppeteer');
+
+function cacheHasChrome(dir) {
+  if (!dir) return false;
+  try {
+    return fs.existsSync(path.join(dir, 'chrome'));
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer a cache that actually has Chrome; ignore empty Cursor sandbox caches. */
+function resolvePuppeteerCacheDir({
+  envCache = process.env.PUPPETEER_CACHE_DIR,
+  homeCache = HOME_PUPPETEER_CACHE,
+} = {}) {
+  if (cacheHasChrome(envCache)) return envCache;
+  if (cacheHasChrome(homeCache)) return homeCache;
+  return envCache || homeCache;
+}
+
+function applyPuppeteerCacheDir() {
+  const resolved = resolvePuppeteerCacheDir();
+  if (resolved) process.env.PUPPETEER_CACHE_DIR = resolved;
+  return resolved;
+}
+
+function findFileNamed(root, wanted, depth = 0) {
+  if (!root || depth > 8) return null;
+  let entries;
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return null; }
+  for (const entry of entries) {
+    const full = path.join(root, entry.name);
+    if (entry.isFile() && entry.name === wanted) return full;
+    if (entry.isDirectory()) {
+      const found = findFileNamed(full, wanted, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Puppeteer snapshots cacheDirectory at require-time; pass an explicit binary. */
+function resolveChromeExecutable(cacheDir = resolvePuppeteerCacheDir()) {
+  const fromCache = findFileNamed(path.join(cacheDir, 'chrome'), 'Google Chrome for Testing');
+  if (fromCache) return fromCache;
+  const macChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (fs.existsSync(macChrome)) return macChrome;
+  return null;
+}
 
 // ─── Resume PDF ────────────────────────────────────────────────────────────────
 
@@ -43,10 +97,14 @@ async function exportCoverLetterPDF(markdown) {
 // ─── Shared Puppeteer helper ───────────────────────────────────────────────────
 
 async function _renderPDF(html, pdfOptions) {
-  const browser = await puppeteer.launch({
+  const cacheDir = applyPuppeteerCacheDir();
+  const executablePath = resolveChromeExecutable(cacheDir);
+  const launchOpts = {
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  };
+  if (executablePath) launchOpts.executablePath = executablePath;
+  const browser = await puppeteer.launch(launchOpts);
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
@@ -58,4 +116,10 @@ async function _renderPDF(html, pdfOptions) {
   }
 }
 
-module.exports = { exportResumePDF, exportCoverLetterPDF };
+module.exports = {
+  exportResumePDF,
+  exportCoverLetterPDF,
+  resolvePuppeteerCacheDir,
+  applyPuppeteerCacheDir,
+  resolveChromeExecutable,
+};
