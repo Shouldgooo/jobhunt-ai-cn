@@ -183,7 +183,7 @@ No Gemini or Ollama calls outside these three files. `server.js` calls into them
 
 - The model name must come from the `GEMINI_MODEL` env var — never hardcode `gemini-2.5-flash` or any model string in source code.
 - LLM provider is selected via `LLM_PROVIDER` env var (`gemini` | `ollama`).
-- Use JSON mode for all structured LLM responses (`response_mime_type: 'application/json'` for Gemini; `format: "json"` for Ollama).
+- Use JSON mode for all structured LLM responses (`generationConfig.responseFormat.text` with `mimeType: APPLICATION_JSON` and a JSON Schema for Gemini; `format: "json"` for Ollama). Do not add deprecated `response_schema` / `responseSchema`.
 - User-editable prompts live in `user/prompts.json`. Fixed system prompts (archetype rules, evaluation rubrics) live in `prompts/*.md`.
 
 ---

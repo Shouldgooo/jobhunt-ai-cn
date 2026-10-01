@@ -153,7 +153,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"`. JSON is read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {

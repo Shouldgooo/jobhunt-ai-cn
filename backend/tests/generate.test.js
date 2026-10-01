@@ -18,6 +18,9 @@ const {
   JSON_TRUNCATED_ERROR,
   JSON_SCHEMA_ERROR,
   createGeminiCallTracker,
+  buildGeminiRequestBody,
+  GEMINI_GENERATION_CONFIG,
+  GENERATION_RESPONSE_JSON_SCHEMA,
 } = require('../tailor');
 const { getApplicationById, insertApplication } = require('../db');
 const { createGenerationLock, generationKey, tryStartGeneration, finishGeneration } = require('../generation-lock');
@@ -150,6 +153,24 @@ test('parseLlmJson rejects truncated or malformed JSON', () => {
   assert.throws(() => parseLlmJson('{ "fit_score": 1, }'), (err) => err.message === JSON_PARSE_ERROR);
 });
 
+test('parseLlmJson attaches redacted SyntaxError diagnostics without the full candidate', () => {
+  const leaky = `{ "note": "key=AIzaSyTESTKEY1234567890abcdefghiJKL", }`;
+  assert.throws(
+    () => parseLlmJson(leaky),
+    (err) => {
+      assert.equal(err.message, JSON_PARSE_ERROR);
+      assert.equal(err.jsonParse.candidateChars, leaky.length);
+      assert.equal(typeof err.jsonParse.message, 'string');
+      assert.ok(err.jsonParse.message.length > 0);
+      assert.ok(err.jsonParse.message.length <= 200);
+      assert.equal(typeof err.jsonParse.position, 'number');
+      assert.doesNotMatch(err.jsonParse.message, /AIzaSy/);
+      assert.equal(JSON.stringify(err.jsonParse).includes(leaky), false);
+      return true;
+    },
+  );
+});
+
 test('collectGeminiText skips thought parts and reads the JSON text part', () => {
   const payload = okPayload();
   const collected = collectGeminiText({
@@ -246,6 +267,74 @@ test('in-flight generation key blocks a duplicate', () => {
   finishGeneration(key);
   assert.equal(tryStartGeneration(key), true);
   finishGeneration(key);
+});
+
+test('Gemini request uses REST responseFormat structured output, not deprecated response_schema', () => {
+  const body = buildGeminiRequestBody('prompt');
+  const cfg = body.generationConfig;
+  assert.equal(cfg.thinkingConfig.thinkingLevel, 'low');
+  assert.equal(cfg.response_mime_type, undefined);
+  assert.equal(cfg.responseMimeType, undefined);
+  assert.equal(cfg.response_schema, undefined);
+  assert.equal(cfg.responseSchema, undefined);
+  assert.equal(cfg.response_json_schema, undefined);
+  assert.equal(cfg.responseJsonSchema, undefined);
+  assert.equal(cfg.responseFormat.text.mimeType, 'APPLICATION_JSON');
+  assert.equal(cfg.responseFormat.text.schema, GENERATION_RESPONSE_JSON_SCHEMA);
+  assert.equal(GEMINI_GENERATION_CONFIG.responseFormat.text.mimeType, 'APPLICATION_JSON');
+
+  const schema = cfg.responseFormat.text.schema;
+  assert.equal(schema.type, 'object');
+  assert.equal(schema.properties.tailored_resume_md.type, 'string');
+  assert.equal(schema.properties.detected_skills.type, 'array');
+  assert.equal(schema.properties.detected_skills.items.type, 'string');
+  assert.equal(schema.properties.fit_score.type, 'number');
+  assert.equal(schema.properties.fit_score.minimum, 0);
+  assert.equal(schema.properties.fit_score.maximum, 100);
+  for (const key of ['job_title', 'company', 'location', 'archetype']) {
+    assert.equal(schema.properties[key].type, 'string');
+  }
+  assert.deepEqual(schema.required, [
+    'tailored_resume_md',
+    'detected_skills',
+    'fit_score',
+    'job_title',
+    'company',
+    'location',
+    'archetype',
+    'cover_letter',
+  ]);
+  const coverTypes = schema.properties.cover_letter.anyOf.map((item) => item.type || 'object');
+  assert.ok(coverTypes.includes('null'));
+  assert.ok(coverTypes.includes('string'));
+  assert.ok(coverTypes.includes('object'));
+  const coverObject = schema.properties.cover_letter.anyOf.find((item) => item.type === 'object');
+  assert.deepEqual(coverObject.required, [
+    'company', 'job_title', 'why_company', 'matching_skills', 'specific_project', 'why_company_culture',
+  ]);
+});
+
+test('structured-output JSON still goes through parseLlmJson without a repair call', () => {
+  const payload = okPayload({ cover: false });
+  const parsed = parseLlmJson(JSON.stringify(payload));
+  assert.equal(parsed.fit_score, 81);
+  assert.equal(typeof parsed.tailored_resume_md, 'string');
+  assert.deepEqual(parsed.detected_skills, ['TypeScript', 'React']);
+  assert.equal(parsed.cover_letter, null);
+  const withCover = parseLlmJson(JSON.stringify(okPayload({ cover: true })));
+  assert.equal(withCover.cover_letter.company, 'Northwind Analytics');
+});
+
+test('structured output does not skip local validation or add a Gemini repair call', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../tailor.js'), 'utf8');
+  assert.match(src, /function collectGeminiText/);
+  assert.match(src, /function parseLlmJson/);
+  assert.match(src, /function normalizeGenerationResult/);
+  assert.match(src, /responseFormat/);
+  assert.equal(src.includes('jsonrepair'), false);
+  assert.equal((src.match(/axios\.post/g) || []).length, 2);
+  const analyze = fs.readFileSync(path.join(__dirname, '../analyze-flow.js'), 'utf8');
+  assert.match(analyze, /change-summary/);
 });
 
 test('createGeminiCallTracker starts at zero', () => {

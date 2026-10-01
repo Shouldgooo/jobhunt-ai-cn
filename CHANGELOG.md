@@ -1,3 +1,14 @@
+## 2026-10-02 — Gemini structured output via responseFormat
+
+- Send generateContent `generationConfig.responseFormat.text` with `mimeType: APPLICATION_JSON` (REST MimeType enum, not the IANA string `application/json`) and the current generation JSON Schema; keep `thinkingLevel: low`
+- Do not send deprecated `response_schema` / `responseSchema` / `response_mime_type`
+- Keep collectGeminiText, parseLlmJson, normalizeGenerationResult, evidence/hallucination checks, and one logical Gemini call; do not repair JSON
+
+## 2026-10-02 — JSON.parse SyntaxError diagnostics
+
+- On Gemini JSON parse failure, log a redacted `SyntaxError.message`, parse `position`, and candidate length
+- Do not log the full candidate, JD/CV/profile, API keys, or request config; still refuse to save malformed JSON
+
 ## 2026-10-02 — Gemini HTTP 403 diagnostics
 
 - Parse Google `error.response.data` on Gemini non-2xx (object or JSON string) and log HTTP status, `error.code`, `error.status`, redacted `error.message`, details `@type` / `reason` / `domain`, and RetryInfo

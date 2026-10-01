@@ -87,7 +87,7 @@ Report pass/fail. Fix before finishing if tests fail.
 - Gemini model: always from `GEMINI_MODEL` env var — never hardcode a model name
 - Tailor prompt: assembled from `prompts/tailor.md` + `user/profile.md` + `user/cv.md`
 - Rescore + coverletter prompts: loaded from `user/prompts.json` at runtime
-- JSON mode: Gemini → `response_mime_type: 'application/json'`; Ollama → `format: "json"`
+- JSON mode: Gemini → `generationConfig.responseFormat.text` (`mimeType: APPLICATION_JSON` + JSON Schema); Ollama → `format: "json"`
 
 ### Fetch / API
 - All browser `fetch()` calls must go through `frontend/src/lib/api.ts` — never raw fetch in components

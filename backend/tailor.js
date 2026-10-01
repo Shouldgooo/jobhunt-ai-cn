@@ -21,9 +21,68 @@ const MAX_QUOTA_WAIT_MS = 60_000;
 const { CLIENT_DISCONNECTED, abortReasonText } = require('./generation-abort');
 const USER_CANCELLED = 'USER_CANCELLED';
 const GEMINI_THINKING_LEVEL = 'low';
+
+const COVER_LETTER_OBJECT_SCHEMA = {
+  type: 'object',
+  properties: {
+    company: { type: 'string' },
+    job_title: { type: 'string' },
+    why_company: { type: 'string' },
+    matching_skills: { type: 'string' },
+    specific_project: { type: 'string' },
+    why_company_culture: { type: 'string' },
+  },
+  required: [
+    'company',
+    'job_title',
+    'why_company',
+    'matching_skills',
+    'specific_project',
+    'why_company_culture',
+  ],
+  additionalProperties: false,
+};
+
+/** JSON Schema for generateContent responseFormat.text.schema (official REST subset). */
+const GENERATION_RESPONSE_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    tailored_resume_md: { type: 'string' },
+    detected_skills: { type: 'array', items: { type: 'string' } },
+    fit_score: { type: 'number', minimum: 0, maximum: 100 },
+    job_title: { type: 'string' },
+    company: { type: 'string' },
+    location: { type: 'string' },
+    archetype: { type: 'string' },
+    cover_letter: {
+      anyOf: [
+        { type: 'null' },
+        { type: 'string' },
+        COVER_LETTER_OBJECT_SCHEMA,
+      ],
+    },
+  },
+  required: [
+    'tailored_resume_md',
+    'detected_skills',
+    'fit_score',
+    'job_title',
+    'company',
+    'location',
+    'archetype',
+    'cover_letter',
+  ],
+  additionalProperties: false,
+};
+
 const GEMINI_GENERATION_CONFIG = {
-  response_mime_type: 'application/json',
   thinkingConfig: { thinkingLevel: GEMINI_THINKING_LEVEL },
+  responseFormat: {
+    text: {
+      mimeType: 'APPLICATION_JSON',
+      schema: GENERATION_RESPONSE_JSON_SCHEMA,
+    },
+  },
 };
 
 function cancelledError() {
@@ -432,15 +491,34 @@ function collectGeminiText(data) {
   };
 }
 
+function extractJsonParsePosition(err) {
+  const msg = String(err?.message || '');
+  const m = msg.match(/position\s+(\d+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function describeJsonParseError(err, candidateChars) {
+  return {
+    message: redactSensitive(String(err?.message || '')).slice(0, 200),
+    position: extractJsonParsePosition(err),
+    candidateChars: typeof candidateChars === 'number' ? candidateChars : null,
+  };
+}
+
 function logGeminiJsonShape(collected, extra = {}) {
   const preview = previewForLog(collected.text);
   console.log(
     `[gemini] candidate finishReason=${collected.finishReason || 'n/a'} parts=${collected.partCount} thoughtParts=${collected.thoughtParts} textChars=${preview.chars}${extra.kind ? ` json=${extra.kind}` : ''}`
   );
   if (extra.failed) {
-    console.warn(
-      `[gemini] json ${extra.kind || 'parse-failed'} head=${JSON.stringify(preview.head)} tail=${JSON.stringify(preview.tail)}`
-    );
+    const bits = [`[gemini] json ${extra.kind || 'parse-failed'}`];
+    if (extra.jsonParse?.candidateChars != null) bits.push(`chars=${extra.jsonParse.candidateChars}`);
+    if (extra.jsonParse?.message) bits.push(`error=${JSON.stringify(extra.jsonParse.message)}`);
+    if (extra.jsonParse?.position != null) bits.push(`position=${extra.jsonParse.position}`);
+    bits.push(`head=${JSON.stringify(preview.head)} tail=${JSON.stringify(preview.tail)}`);
+    console.warn(bits.join(' '));
   }
 }
 
@@ -455,7 +533,9 @@ function parseLlmJson(text, { finishReason } = {}) {
   } catch (err) {
     if (err && err.statusCode === 502) throw err;
     const truncated = looksLikeTruncatedJson(extracted || text, finishReason);
-    throw llmUserError(truncated ? JSON_TRUNCATED_ERROR : JSON_PARSE_ERROR, 502);
+    const userErr = llmUserError(truncated ? JSON_TRUNCATED_ERROR : JSON_PARSE_ERROR, 502);
+    userErr.jsonParse = describeJsonParseError(err, String(extracted || '').length);
+    throw userErr;
   }
 }
 
@@ -531,7 +611,11 @@ async function callLLM(prompt, { tracker, signal, onRetry, startedAt } = {}) {
     try {
       return parseLlmJson(collected.text, { finishReason: collected.finishReason });
     } catch (err) {
-      logGeminiJsonShape(collected, { failed: true, kind: err.message.includes('不完整') ? 'truncated-or-incomplete' : 'parse' });
+      logGeminiJsonShape(collected, {
+        failed: true,
+        kind: err.message.includes('不完整') ? 'truncated-or-incomplete' : 'parse',
+        jsonParse: err.jsonParse,
+      });
       throw err;
     }
   }, { signal, onRetry, startedAt });
@@ -826,6 +910,7 @@ module.exports = {
   throwIfAborted,
   buildGeminiRequestBody,
   GEMINI_GENERATION_CONFIG,
+  GENERATION_RESPONSE_JSON_SCHEMA,
   GEMINI_THINKING_LEVEL,
   USER_CANCELLED,
   geminiModel,

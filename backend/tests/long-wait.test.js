@@ -231,9 +231,13 @@ test('real 503 handling still retries with backoff', async () => {
   assert.deepEqual(delays, [2000]);
 });
 
-test('thinkingLevel=low remains active', () => {
+test('thinkingLevel=low remains active with responseFormat JSON schema', () => {
   assert.equal(GEMINI_GENERATION_CONFIG.thinkingConfig.thinkingLevel, 'low');
-  assert.equal(buildGeminiRequestBody('x').generationConfig.thinkingConfig.thinkingLevel, 'low');
+  const body = buildGeminiRequestBody('x');
+  assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+  assert.equal(body.generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON');
+  assert.equal(body.generationConfig.response_schema, undefined);
+  assert.equal(body.generationConfig.responseSchema, undefined);
 });
 
 test('cleaned JD is sent to Gemini; raw JD is stored', async () => {
