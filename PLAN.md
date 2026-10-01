@@ -33,6 +33,8 @@
 | 4l | Morandi dusty-rose visual refresh | `[x]` | CSS tokens; Dashboard layout; no backend/Gemini changes |
 | 4m | New Application defaults + success downloads | `[x]` | 简历 on / 求职信 off; stay on page; existing PDF GET after save; 查看分析结果 → editor |
 | 4n | Editor 分析 tab concise Chinese summary | `[x]` | Local view from fit_score + verified change_summary / optional evidence matrix; hide Evaluate CTA; no extra Gemini |
+| 4o | Safer Gemini JSON extraction | `[x]` | Thought parts + fences/BOM unwrap; truncated vs schema errors; no extra Gemini; no save on fail |
+| 4p | Gemini HTTP error body diagnostics | `[x]` | Log redacted Google 403 fields; Chinese `formatLlmError`; 403 not retried; no extra Gemini |
 
 ---
 
@@ -115,7 +117,7 @@
 
 ### tailor.js logic (v2)
 1. Reads `prompts/tailor.md` (fixed system prompt) + `user/profile.md` + `user/cv.md` (or `baseMd` from DB template)
-2. `POST /api/analyze` uses `analyze-flow.js` → `generateApplication`: one LLM call (Gemini or Ollama) for analysis + tailored resume + optional cover-letter fills + job metadata. After that call, `change-summary.js` locally diffs original vs generated resume and stores verified JSON on the row. Streams NDJSON progress when `Accept: application/x-ndjson`. Gemini: 503/5xx use 2s/4s/8s backoff (max 3); 429 waits `RetryInfo.retryDelay` at most once (≤ 60s) then `formatLlmError`; 400/401/403/404 fail immediately. Real client disconnect (`res.close` / `req.aborted`, not `req.close`) → axios `signal` cancels the in-flight HTTP request; no insert; generation lock released. UI 生成已取消 only after 取消生成.
+2. `POST /api/analyze` uses `analyze-flow.js` → `generateApplication`: one LLM call (Gemini or Ollama) for analysis + tailored resume + optional cover-letter fills + job metadata. After that call, `change-summary.js` locally diffs original vs generated resume and stores verified JSON on the row. Streams NDJSON progress when `Accept: application/x-ndjson`. Gemini: 503/5xx use 2s/4s/8s backoff (max 3); 429 waits `RetryInfo.retryDelay` at most once (≤ 60s) then `formatLlmError`; 400/401/403/404 fail immediately. Non-2xx Google bodies are parsed for logs (`error.code` / `status` / redacted `message` / details `@type|reason|domain` / RetryInfo) without API keys or request config. Real client disconnect (`res.close` / `req.aborted`, not `req.close`) → axios `signal` cancels the in-flight HTTP request; no insert; generation lock released. UI 生成已取消 only after 取消生成.
 3. Returns `{ markdown, fit_score, detected_skills, job_title, company, location, archetype, cover_md, cover_letter_available }`
 4. Validates response shape; clamps `fit_score` to 0–100
 5. Rewrites Summary and Work Experience from real CV/profile evidence; Skills bold/reorder; Projects stay projects. Never invents employers, dates, official titles, or metrics. Optional `Official Title | Functional Focus` only when the source supports it.

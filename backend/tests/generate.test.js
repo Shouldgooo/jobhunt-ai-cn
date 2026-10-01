@@ -13,6 +13,10 @@ const {
   generateApplication,
   normalizeGenerationResult,
   parseLlmJson,
+  collectGeminiText,
+  JSON_PARSE_ERROR,
+  JSON_TRUNCATED_ERROR,
+  JSON_SCHEMA_ERROR,
   createGeminiCallTracker,
 } = require('../tailor');
 const { getApplicationById, insertApplication } = require('../db');
@@ -131,14 +135,46 @@ test('normalizeGenerationResult accepts nested job/analysis schema', () => {
   assert.deepEqual(result.detected_skills, ['React']);
 });
 
-test('malformed Gemini JSON fails safely', () => {
-  assert.throws(
-    () => parseLlmJson('not-json {{{'),
-    /无法解析的 JSON/
-  );
+test('parseLlmJson accepts pure, fenced, wrapped, and BOM JSON without extra Gemini calls', () => {
+  const payload = okPayload();
+  const raw = JSON.stringify(payload);
+  assert.equal(parseLlmJson(raw).fit_score, 81);
+  assert.equal(parseLlmJson('```json\n' + raw + '\n```').fit_score, 81);
+  assert.equal(parseLlmJson('Here is the result:\n' + raw + '\nThanks.').fit_score, 81);
+  assert.equal(parseLlmJson('\uFEFF  \n' + raw + '\n  ').fit_score, 81);
+});
+
+test('parseLlmJson rejects truncated or malformed JSON', () => {
+  assert.throws(() => parseLlmJson('{ "tailored_resume_md": "hello'), (err) => err.message === JSON_TRUNCATED_ERROR);
+  assert.throws(() => parseLlmJson('not-json {{{'), (err) => err.message === JSON_TRUNCATED_ERROR);
+  assert.throws(() => parseLlmJson('{ "fit_score": 1, }'), (err) => err.message === JSON_PARSE_ERROR);
+});
+
+test('collectGeminiText skips thought parts and reads the JSON text part', () => {
+  const payload = okPayload();
+  const collected = collectGeminiText({
+    candidates: [{
+      finishReason: 'STOP',
+      content: {
+        parts: [
+          { thought: true, text: 'I will write JSON next.' },
+          { text: JSON.stringify(payload) },
+        ],
+      },
+    }],
+  });
+  assert.equal(collected.thoughtParts, 1);
+  assert.equal(parseLlmJson(collected.text, { finishReason: collected.finishReason }).job_title, 'Support Engineer');
+});
+
+test('valid JSON with invalid schema fails without inventing fields', () => {
   assert.throws(
     () => normalizeGenerationResult({ fit_score: 10 }, { wantCoverLetter: false }),
-    /tailored_resume_md/
+    (err) => err.message === JSON_SCHEMA_ERROR,
+  );
+  assert.throws(
+    () => parseLlmJson('[1, 2]'),
+    (err) => err.message === JSON_SCHEMA_ERROR,
   );
 });
 
@@ -152,7 +188,7 @@ test('malformed generation does not insert an application', async () => {
       baseMd: FICTIONAL_CV,
       generateCoverLetter: false,
     }, { callLLM: async () => ({ nope: true }) }),
-    /未保存申请/
+    /申请未保存/
   );
 
   assert.equal(getApplicationById(999999), null);
@@ -216,4 +252,12 @@ test('createGeminiCallTracker starts at zero', () => {
   const tracker = createGeminiCallTracker();
   assert.equal(tracker.logicalCalls, 0);
   assert.equal(tracker.httpAttempts, 0);
+});
+
+test('JSON extraction and schema checks add zero Gemini calls', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../tailor.js'), 'utf8');
+  const parseFn = src.split('function parseLlmJson')[1].split('function buildGeminiRequestBody')[0];
+  const collectFn = src.split('function collectGeminiText')[1].split('function logGeminiJsonShape')[0];
+  assert.doesNotMatch(parseFn, /axios\.post|generateContent/);
+  assert.doesNotMatch(collectFn, /axios\.post|generateContent/);
 });

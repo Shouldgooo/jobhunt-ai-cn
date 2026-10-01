@@ -243,3 +243,81 @@ test('503 retry emits busy progress message', async () => {
   assert.match(retry.message, /1\/3/);
   assert.equal(retry.progress, 35);
 });
+
+test('JSON/schema failure does not insert and a later retry does not duplicate', async () => {
+  let inserts = 0;
+  let calls = 0;
+  const fail = Object.assign(new Error('AI 返回的数据结构不完整，本次申请未保存。请重新尝试。'), { statusCode: 502 });
+  await assert.rejects(
+    () => runAnalyzeGeneration({
+      body: { jd: JD, generate_cover_letter: false },
+      ...deps({
+        generate: async () => { calls += 1; throw fail; },
+        insert: () => { inserts += 1; return 1; },
+      }),
+    }),
+    /申请未保存/,
+  );
+  assert.equal(calls, 1);
+  assert.equal(inserts, 0);
+  assert.equal(getAllApplications().length, 0);
+
+  const key = generationKey({ jd: JD, resume_template_id: 0, generate_cover_letter: false });
+  assert.equal(tryStartGeneration(key), true);
+  finishGeneration(key);
+  assert.equal(tryStartGeneration(key), true);
+  finishGeneration(key);
+
+  const { application } = await runAnalyzeGeneration({
+    body: { jd: JD, generate_cover_letter: false },
+    ...deps({
+      generate: async () => { calls += 1; return fakeGenerated(); },
+      insert: () => { inserts += 1; return 55; },
+    }),
+  });
+  assert.equal(calls, 2);
+  assert.equal(inserts, 1);
+  assert.equal(application.id, 55);
+});
+
+test('Gemini 403 does not insert and releases the generation lock', async () => {
+  const { formatLlmError } = require('../tailor');
+  let inserts = 0;
+  let calls = 0;
+  const fail = formatLlmError({
+    message: 'Request failed with status code 403',
+    response: {
+      status: 403,
+      data: {
+        error: {
+          code: 403,
+          message: 'Permission denied',
+          status: 'PERMISSION_DENIED',
+        },
+      },
+    },
+    config: { url: 'https://example/?key=AIzaSySHOULDNOTLEAK1234567890abc' },
+  });
+  await assert.rejects(
+    () => runAnalyzeGeneration({
+      body: { jd: JD, generate_cover_letter: false },
+      ...deps({
+        generate: async () => { calls += 1; throw fail; },
+        insert: () => { inserts += 1; return 1; },
+      }),
+    }),
+    (err) => {
+      assert.match(err.message, /拒绝了当前请求/);
+      assert.doesNotMatch(err.message, /Request failed with status code 403/);
+      assert.doesNotMatch(err.message, /AIzaSy/);
+      return err.statusCode === 403;
+    },
+  );
+  assert.equal(calls, 1);
+  assert.equal(inserts, 0);
+  assert.equal(getAllApplications().length, 0);
+
+  const key = generationKey({ jd: JD, resume_template_id: 0, generate_cover_letter: false });
+  assert.equal(tryStartGeneration(key), true);
+  finishGeneration(key);
+});

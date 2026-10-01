@@ -1,3 +1,15 @@
+## 2026-10-02 — Gemini HTTP 403 diagnostics
+
+- Parse Google `error.response.data` on Gemini non-2xx (object or JSON string) and log HTTP status, `error.code`, `error.status`, redacted `error.message`, details `@type` / `reason` / `domain`, and RetryInfo
+- Map 403 user copy from the Google body only (PERMISSION_DENIED / API disabled / model permission); generic 403 Chinese if unclassified — never axios `Request failed with status code 403`
+- Do not retry 403; leave 429/503 retry unchanged; redact API keys and `key=` query params; do not log request config or personal content
+
+## 2026-10-01 — Safer Gemini JSON extraction
+
+- Extract JSON from thought-part payloads, fenced blocks, BOM/whitespace, and short surrounding text without a second Gemini call
+- Distinguish truncated/incomplete JSON from schema validation; do not save applications on either failure
+- Keep malformed JSON as a hard fail; never invent missing fields
+
 ## 2026-09-30 — Editor 分析 tab concise Chinese summary
 
 - Replace the verbose original/adjusted resume blocks on 分析 with a compact Morandi summary: 匹配度, 综合分析, 本次简历调整, 主要优势, 需要注意, 建议

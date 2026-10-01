@@ -153,7 +153,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"`. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"`. JSON is read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {
@@ -201,8 +201,8 @@ Supports Gemini (default) and Ollama — switched via `LLM_PROVIDER` env var.
 Gemini `generateContent` retry policy:
 - **503 / 500 / 502 / 504:** exponential backoff 2s / 4s / 8s, max 3 retries. Exhausted errors return: `Gemini 服务暂时繁忙，请稍后重试。`
 - **429 RESOURCE_EXHAUSTED:** do not use the short backoff. If Gemini `RetryInfo.retryDelay` is present and ≤ 60s, wait that delay and retry **once**. Otherwise return immediately. User-facing message: `Gemini API 请求额度已达到限制，请约 N 秒后重试。` (or `请稍后重试` when no delay is provided).
-- **400 / 401 / 403 / 404:** not retried. 404 still names the model and Gemini's message.
-- Final errors always go through `formatLlmError` — never a generic "temporarily unavailable after 3 retries" string. Backend logs HTTP status, Gemini `error.status` / `error.code`, retry delay, and attempt; never the API key.
+- **400 / 401 / 403 / 404:** not retried. 404 still names the model and Gemini's message. 403 user copy is mapped from the Google error body when possible (`PERMISSION_DENIED` / API disabled / model permission); HTTP 403 alone uses a generic Chinese refusal and never the axios `Request failed with status code 403` text.
+- Final errors always go through `formatLlmError` — never a generic "temporarily unavailable after 3 retries" string. For Gemini non-2xx responses the backend logs HTTP status, `error.code`, `error.status`, a redacted `error.message`, details `@type` / `reason` / `domain`, and RetryInfo when present. It never logs the API key, `key=` query params, Authorization, request config, JD/CV/profile/prompt, or candidate text.
 
 ---
 

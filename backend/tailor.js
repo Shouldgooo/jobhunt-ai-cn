@@ -84,6 +84,39 @@ function sleep(ms, signal) {
   });
 }
 
+function redactSensitive(text) {
+  if (typeof text !== 'string' || !text) return text;
+  return text
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]')
+    .replace(/\bAQ\.[A-Za-z0-9_-]{10,}/g, '[redacted]')
+    .replace(/([?&](?:key|api_key|apikey)=)[^&\s"'\\]+/gi, '$1[redacted]')
+    .replace(/(Authorization:\s*)\S+/gi, '$1[redacted]')
+    .replace(/(Bearer\s+)\S+/gi, '$1[redacted]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]');
+}
+
+function truncateForLog(text, max = 240) {
+  if (typeof text !== 'string' || !text) return text;
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** Safely read axios error.response.data (object or JSON string). Never throws. */
+function parseGeminiErrorPayload(data) {
+  if (data == null) return {};
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return {};
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof data === 'object' && !Buffer.isBuffer(data)) return data;
+  return {};
+}
+
 /** Parse Gemini RetryInfo.retryDelay ("36s", "36.884s") into milliseconds. */
 function parseGeminiRetryDelayMs(retryDelay) {
   if (retryDelay == null) return null;
@@ -98,24 +131,68 @@ function parseGeminiRetryDelayMs(retryDelay) {
 
 function extractGeminiErrorInfo(err) {
   const httpStatus = err?.response?.status ?? null;
-  const geminiError = err?.response?.data?.error ?? {};
-  const details = Array.isArray(geminiError.details) ? geminiError.details : [];
+  const payload = parseGeminiErrorPayload(err?.response?.data);
+  const geminiError = payload && typeof payload.error === 'object' && payload.error
+    ? payload.error
+    : {};
+  const rawDetails = Array.isArray(geminiError.details) ? geminiError.details : [];
+  const details = rawDetails.map((d) => {
+    if (!d || typeof d !== 'object') return null;
+    const type = typeof d['@type'] === 'string' ? d['@type'] : null;
+    const reason = typeof d.reason === 'string' ? d.reason : null;
+    const domain = typeof d.domain === 'string' ? d.domain : null;
+    const retryDelay = d.retryDelay != null ? d.retryDelay : null;
+    if (!type && !reason && !domain && retryDelay == null) return null;
+    return { type, reason, domain, retryDelay };
+  }).filter(Boolean);
   const retryInfo = details.find(d =>
-    (typeof d?.['@type'] === 'string' && d['@type'].endsWith('RetryInfo')) ||
+    (typeof d?.type === 'string' && d.type.endsWith('RetryInfo')) ||
     d?.retryDelay != null
   );
+  const rawMessage = typeof geminiError.message === 'string' ? geminiError.message : null;
   let retryDelayMs = parseGeminiRetryDelayMs(retryInfo?.retryDelay);
-  if (retryDelayMs == null && typeof geminiError.message === 'string') {
-    const m = geminiError.message.match(/retry in (\d+(?:\.\d+)?)\s*s/i);
+  if (retryDelayMs == null && rawMessage) {
+    const m = rawMessage.match(/retry in (\d+(?:\.\d+)?)\s*s/i);
     if (m) retryDelayMs = Math.max(0, Math.round(parseFloat(m[1]) * 1000));
   }
   return {
     httpStatus,
     code: geminiError.code ?? null,
-    status: geminiError.status ?? null,
-    message: typeof geminiError.message === 'string' ? geminiError.message : null,
+    status: typeof geminiError.status === 'string' ? geminiError.status : null,
+    message: rawMessage ? redactSensitive(rawMessage) : null,
+    details,
     retryDelayMs,
   };
+}
+
+function classifyGemini403(info) {
+  if (info?.httpStatus !== 403) return null;
+  const blob = [
+    info.status,
+    info.message,
+    ...(info.details || []).flatMap(d => [d.type, d.reason, d.domain]),
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const apiDisabled = (
+    /\bservice_disabled\b/.test(blob)
+    || /has not been used/.test(blob)
+    || /api has not been enabled/.test(blob)
+    || /api is not enabled/.test(blob)
+    || (/is disabled/.test(blob) && /\bapi\b/.test(blob))
+    || /enable it by visiting/.test(blob)
+  );
+  if (apiDisabled) return 'api_disabled';
+
+  const modelPermission = (
+    /does not have permission to use (the )?(requested )?model/.test(blob)
+    || /does not have access to (the )?(requested )?model/.test(blob)
+    || /no permission to (access|use) (the )?(requested )?model/.test(blob)
+    || /api key does not have permission to use the requested model/.test(blob)
+  );
+  if (modelPermission) return 'model_permission';
+
+  if (info.status === 'PERMISSION_DENIED') return 'permission_denied';
+  return 'unknown';
 }
 
 function formatRetrySeconds(retryDelayMs) {
@@ -133,6 +210,15 @@ function logGeminiDecision(info, { attempt, delayMs, action }) {
   const parts = [`[gemini] HTTP ${info.httpStatus ?? 'n/a'}`];
   if (info.status) parts.push(`status=${info.status}`);
   if (info.code != null) parts.push(`code=${info.code}`);
+  if (info.message) parts.push(`message=${truncateForLog(info.message)}`);
+  if (Array.isArray(info.details) && info.details.length) {
+    const summary = info.details.map((d) => [
+      d.type && `@type=${d.type}`,
+      d.reason && `reason=${d.reason}`,
+      d.domain && `domain=${d.domain}`,
+    ].filter(Boolean).join(' ')).filter(Boolean).join('; ');
+    if (summary) parts.push(`details=${summary}`);
+  }
   parts.push(`attempt ${attempt}`);
   if (info.retryDelayMs != null) parts.push(`retryDelay=${info.retryDelayMs}ms`);
   if (action === 'retry' && delayMs != null) parts.push(`retry in ${delayMs}ms`);
@@ -163,6 +249,19 @@ function formatLlmError(err) {
   }
   if (status === 503) {
     return llmUserError('Gemini 服务暂时繁忙，请稍后重试。', 503);
+  }
+  if (status === 403) {
+    const kind = classifyGemini403(info);
+    if (kind === 'api_disabled') {
+      return llmUserError('当前 Google Cloud 项目尚未启用 Gemini API。', 403);
+    }
+    if (kind === 'model_permission') {
+      return llmUserError('当前 API Key / Google Cloud 项目没有访问该 Gemini 模型的权限。', 403);
+    }
+    if (kind === 'permission_denied') {
+      return llmUserError('Gemini API 拒绝了当前请求，请检查 API Key、Google Cloud 项目权限或模型访问权限。', 403);
+    }
+    return llmUserError('Gemini API 拒绝了当前请求（403）。请检查 API Key、项目权限和模型访问权限。', 403);
   }
   if (status === 404) {
     return llmUserError(
@@ -237,7 +336,7 @@ async function requestGeminiWithRetry(requestFn, {
         continue;
       }
 
-      if (TRANSIENT_OVERLOAD_STATUSES.has(status)) {
+      if (TRANSIENT_OVERLOAD_STATUSES.has(status) || status) {
         logGeminiDecision(info, { attempt, delayMs: null, action: 'stop' });
       }
       break;
@@ -250,13 +349,113 @@ function createGeminiCallTracker() {
   return { logicalCalls: 0, httpAttempts: 0 };
 }
 
-function parseLlmJson(text) {
-  const raw = String(text ?? '').trim();
-  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+const JSON_PARSE_ERROR = 'Gemini 返回了无法解析的 JSON，未保存申请。请重试。';
+const JSON_TRUNCATED_ERROR = 'AI 返回内容不完整，本次申请未保存。请重新尝试。';
+const JSON_SCHEMA_ERROR = 'AI 返回的数据结构不完整，本次申请未保存。请重新尝试。';
+
+function previewForLog(text, n = 80) {
+  const value = redactSensitive(String(text || ''));
+  return {
+    chars: value.length,
+    head: value.slice(0, n),
+    tail: value.length > n ? value.slice(-n) : value,
+  };
+}
+
+function stripBom(text) {
+  return String(text ?? '').replace(/^\uFEFF/, '');
+}
+
+function looksLikeTruncatedJson(text, finishReason) {
+  const reason = String(finishReason || '').toUpperCase();
+  if (reason === 'MAX_TOKENS' || reason === 'OTHER') return true;
+  const s = String(text || '').trim();
+  if (!s) return true;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (const ch of s) {
+    if (inString) {
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth -= 1;
+  }
+  if (inString || escape || depth !== 0) return true;
+  return /[:,\[{]$/.test(s);
+}
+
+function extractJsonCandidate(text) {
+  let s = stripBom(text).trim();
+  if (!s) return '';
+  const wrapped = s.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (wrapped) s = wrapped[1].trim();
+  else {
+    const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced) s = fenced[1].trim();
+  }
+  if (!s) return '';
   try {
-    return JSON.parse(stripped);
+    JSON.parse(s);
+    return s;
   } catch {
-    throw llmUserError('Gemini 返回了无法解析的 JSON，未保存申请。请重试。', 502);
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start >= 0 && end > start) return s.slice(start, end + 1);
+    return s;
+  }
+}
+
+function collectGeminiText(data) {
+  const cand = data?.candidates?.[0] || {};
+  const finishReason = cand.finishReason || cand.finish_reason || '';
+  const parts = Array.isArray(cand.content?.parts) ? cand.content.parts : [];
+  const texts = [];
+  let thoughtParts = 0;
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') continue;
+    if (part.thought === true) {
+      thoughtParts += 1;
+      continue;
+    }
+    if (typeof part.text === 'string') texts.push(part.text);
+  }
+  return {
+    finishReason: String(finishReason),
+    partCount: parts.length,
+    thoughtParts,
+    text: texts.join(''),
+  };
+}
+
+function logGeminiJsonShape(collected, extra = {}) {
+  const preview = previewForLog(collected.text);
+  console.log(
+    `[gemini] candidate finishReason=${collected.finishReason || 'n/a'} parts=${collected.partCount} thoughtParts=${collected.thoughtParts} textChars=${preview.chars}${extra.kind ? ` json=${extra.kind}` : ''}`
+  );
+  if (extra.failed) {
+    console.warn(
+      `[gemini] json ${extra.kind || 'parse-failed'} head=${JSON.stringify(preview.head)} tail=${JSON.stringify(preview.tail)}`
+    );
+  }
+}
+
+function parseLlmJson(text, { finishReason } = {}) {
+  const extracted = extractJsonCandidate(text);
+  try {
+    const parsed = JSON.parse(extracted);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw llmUserError(JSON_SCHEMA_ERROR, 502);
+    }
+    return parsed;
+  } catch (err) {
+    if (err && err.statusCode === 502) throw err;
+    const truncated = looksLikeTruncatedJson(extracted || text, finishReason);
+    throw llmUserError(truncated ? JSON_TRUNCATED_ERROR : JSON_PARSE_ERROR, 502);
   }
 }
 
@@ -323,7 +522,18 @@ async function callLLM(prompt, { tracker, signal, onRetry, startedAt } = {}) {
     );
     throwIfAborted(signal);
     logUsageMetadata(res.data);
-    return parseLlmJson(res.data.candidates[0].content.parts[0].text);
+    const collected = collectGeminiText(res.data);
+    logGeminiJsonShape(collected);
+    if (!collected.text.trim()) {
+      logGeminiJsonShape(collected, { failed: true, kind: 'empty' });
+      throw llmUserError(JSON_TRUNCATED_ERROR, 502);
+    }
+    try {
+      return parseLlmJson(collected.text, { finishReason: collected.finishReason });
+    } catch (err) {
+      logGeminiJsonShape(collected, { failed: true, kind: err.message.includes('不完整') ? 'truncated-or-incomplete' : 'parse' });
+      throw err;
+    }
   }, { signal, onRetry, startedAt });
 }
 
@@ -380,8 +590,8 @@ function buildGenerationPrompt({ tailorTemplate, profileMd, cvMd, jd, hints, gen
 }
 
 function normalizeGenerationResult(raw, { wantCoverLetter }) {
-  if (!raw || typeof raw !== 'object') {
-    throw llmUserError('Gemini 返回了无法解析的 JSON，未保存申请。请重试。', 502);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw llmUserError(JSON_SCHEMA_ERROR, 502);
   }
 
   const job = raw.job && typeof raw.job === 'object' ? raw.job : {};
@@ -391,19 +601,19 @@ function normalizeGenerationResult(raw, { wantCoverLetter }) {
     ? raw.tailored_resume_md
     : (typeof raw.resume === 'string' ? raw.resume : null);
   if (typeof markdown !== 'string') {
-    throw llmUserError('Gemini 返回无效响应：缺少 tailored_resume_md。未保存申请。', 502);
+    throw llmUserError(JSON_SCHEMA_ERROR, 502);
   }
 
   const fitRaw = raw.fit_score ?? analysis.fit_score;
   if (typeof fitRaw !== 'number' || Number.isNaN(fitRaw)) {
-    throw llmUserError('Gemini 返回无效响应：缺少 fit_score。未保存申请。', 502);
+    throw llmUserError(JSON_SCHEMA_ERROR, 502);
   }
 
   const skills = Array.isArray(raw.detected_skills)
     ? raw.detected_skills
     : (Array.isArray(analysis.keywords) ? analysis.keywords : null);
   if (!Array.isArray(skills)) {
-    throw llmUserError('Gemini 返回无效响应：缺少 detected_skills。未保存申请。', 502);
+    throw llmUserError(JSON_SCHEMA_ERROR, 502);
   }
 
   let coverLetter = raw.cover_letter ?? raw.cover_letter_md ?? null;
@@ -530,7 +740,7 @@ async function runGenerateApplication({
     } else if (result.cover_letter && typeof result.cover_letter === 'object') {
       cover_md = fillTemplate(coverTemplate, result.cover_letter);
     } else {
-      throw llmUserError('Gemini 未返回求职信内容。未保存申请。请重试。', 502);
+      throw llmUserError(JSON_SCHEMA_ERROR, 502);
     }
   }
 
@@ -599,6 +809,12 @@ module.exports = {
   normalizeGenerationResult,
   buildGenerationPrompt,
   parseLlmJson,
+  collectGeminiText,
+  extractJsonCandidate,
+  looksLikeTruncatedJson,
+  JSON_PARSE_ERROR,
+  JSON_TRUNCATED_ERROR,
+  JSON_SCHEMA_ERROR,
   createGeminiCallTracker,
   callLLM,
   formatLlmError,
@@ -616,6 +832,8 @@ module.exports = {
   requestGeminiWithRetry,
   parseGeminiRetryDelayMs,
   extractGeminiErrorInfo,
+  redactSensitive,
+  classifyGemini403,
   GEMINI_RETRY_DELAYS_MS,
   MAX_GEMINI_RETRIES,
   MAX_QUOTA_WAIT_MS,

@@ -249,10 +249,235 @@ test('requestGeminiWithRetry: 404 is not retried', async () => {
   assert.ok(error);
   assert.equal(calls, 1);
   assert.deepEqual(delays, []);
-  assert.equal(logs.length, 0);
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /HTTP 404/);
+  assert.match(logs[0], /not retrying/);
   assert.match(error.message, /404/);
   assert.match(error.message, /no longer available/);
   assert.ok(!error.message.includes('temporarily unavailable after 3 retries'));
+});
+
+const FAKE_GEMINI_KEY = 'AIzaSyTESTKEY1234567890abcdefghiJKL';
+
+function leakyGeminiErr(status, message, extras = {}) {
+  const err = httpErr(status, message, extras);
+  err.config = {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=${FAKE_GEMINI_KEY}`,
+    method: 'post',
+    headers: { Authorization: 'Bearer secret-token' },
+    data: { contents: [{ parts: [{ text: 'SECRET_JD_AND_CV' }] }] },
+  };
+  return err;
+}
+
+function assertNoSecrets(text) {
+  const s = String(text);
+  assert.doesNotMatch(s, /AIzaSy/);
+  assert.doesNotMatch(s, /secret-token/);
+  assert.doesNotMatch(s, /SECRET_JD_AND_CV/);
+  assert.doesNotMatch(s, /Authorization/);
+}
+
+test('extractGeminiErrorInfo parses Google 403 body including details and RetryInfo', () => {
+  const { extractGeminiErrorInfo } = require('../tailor');
+  const info = extractGeminiErrorInfo(httpErr(
+    403,
+    `Gemini API has not been used. Enable it by visiting https://example/?key=${FAKE_GEMINI_KEY}`,
+    {
+      code: 403,
+      status: 'PERMISSION_DENIED',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'SERVICE_DISABLED',
+          domain: 'googleapis.com',
+        },
+        {
+          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+          retryDelay: '2s',
+        },
+      ],
+    }
+  ));
+  assert.equal(info.httpStatus, 403);
+  assert.equal(info.code, 403);
+  assert.equal(info.status, 'PERMISSION_DENIED');
+  assert.match(info.message, /has not been used/);
+  assert.doesNotMatch(info.message, /AIzaSy/);
+  assert.equal(info.details[0].type, 'type.googleapis.com/google.rpc.ErrorInfo');
+  assert.equal(info.details[0].reason, 'SERVICE_DISABLED');
+  assert.equal(info.details[0].domain, 'googleapis.com');
+  assert.equal(info.retryDelayMs, 2000);
+});
+
+test('extractGeminiErrorInfo safely parses JSON string error bodies', () => {
+  const { extractGeminiErrorInfo } = require('../tailor');
+  const err = new Error('Request failed with status code 403');
+  err.response = {
+    status: 403,
+    data: JSON.stringify({
+      error: {
+        code: 403,
+        message: 'Permission denied on the resource',
+        status: 'PERMISSION_DENIED',
+      },
+    }),
+  };
+  const info = extractGeminiErrorInfo(err);
+  assert.equal(info.status, 'PERMISSION_DENIED');
+  assert.equal(info.message, 'Permission denied on the resource');
+});
+
+test('formatLlmError: 403 PERMISSION_DENIED is Chinese, not axios text', () => {
+  const { formatLlmError } = require('../tailor');
+  const wrapped = formatLlmError(leakyGeminiErr(403, 'Permission denied', {
+    code: 403,
+    status: 'PERMISSION_DENIED',
+  }));
+  assert.equal(wrapped.statusCode, 403);
+  assert.equal(wrapped.message, 'Gemini API 拒绝了当前请求，请检查 API Key、Google Cloud 项目权限或模型访问权限。');
+  assert.ok(!wrapped.message.includes('Request failed with status code 403'));
+  assertNoSecrets(wrapped.message);
+});
+
+test('formatLlmError: 403 API disabled maps from Google body', () => {
+  const { formatLlmError } = require('../tailor');
+  const wrapped = formatLlmError(httpErr(
+    403,
+    'Gemini API has not been used in project 123 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/generativelanguage.googleapis.com/overview?project=123 then retry.',
+    {
+      code: 403,
+      status: 'PERMISSION_DENIED',
+      details: [{
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'SERVICE_DISABLED',
+        domain: 'googleapis.com',
+      }],
+    }
+  ));
+  assert.equal(wrapped.message, '当前 Google Cloud 项目尚未启用 Gemini API。');
+  assert.ok(!wrapped.message.includes('Request failed with status code 403'));
+});
+
+test('formatLlmError: 403 model permission maps from Google body', () => {
+  const { formatLlmError } = require('../tailor');
+  const wrapped = formatLlmError(httpErr(
+    403,
+    'Caller does not have permission to use model gemini-3.6-flash',
+    { code: 403, status: 'PERMISSION_DENIED' }
+  ));
+  assert.equal(wrapped.message, '当前 API Key / Google Cloud 项目没有访问该 Gemini 模型的权限。');
+});
+
+test('formatLlmError: 403 without Google reason is generic and does not guess', () => {
+  const { formatLlmError } = require('../tailor');
+  const wrapped = formatLlmError(leakyGeminiErr(403));
+  assert.equal(wrapped.message, 'Gemini API 拒绝了当前请求（403）。请检查 API Key、项目权限和模型访问权限。');
+  assert.ok(!wrapped.message.includes('Request failed with status code 403'));
+  assert.ok(!wrapped.message.includes('尚未启用'));
+  assert.ok(!wrapped.message.includes('没有访问该 Gemini 模型'));
+  assertNoSecrets(wrapped.message);
+});
+
+test('requestGeminiWithRetry: 403 is not retried and logs Google fields without secrets', async () => {
+  const { requestGeminiWithRetry } = require('../tailor');
+  let calls = 0;
+  const delays = [];
+  const { error, logs } = await withSilentWarn(() => requestGeminiWithRetry(async () => {
+    calls += 1;
+    throw leakyGeminiErr(
+      403,
+      `Permission denied key=${FAKE_GEMINI_KEY}`,
+      {
+        code: 403,
+        status: 'PERMISSION_DENIED',
+        details: [{
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+          domain: 'googleapis.com',
+        }],
+      }
+    );
+  }, { sleep: async (ms) => { delays.push(ms); } }));
+
+  assert.ok(error);
+  assert.equal(calls, 1);
+  assert.deepEqual(delays, []);
+  assert.equal(error.message, 'Gemini API 拒绝了当前请求，请检查 API Key、Google Cloud 项目权限或模型访问权限。');
+  assert.match(logs[0], /HTTP 403/);
+  assert.match(logs[0], /status=PERMISSION_DENIED/);
+  assert.match(logs[0], /code=403/);
+  assert.match(logs[0], /reason=ACCESS_TOKEN_SCOPE_INSUFFICIENT/);
+  assert.match(logs[0], /domain=googleapis.com/);
+  assert.match(logs[0], /@type=type\.googleapis\.com\/google\.rpc\.ErrorInfo/);
+  assert.match(logs[0], /not retrying/);
+  assertNoSecrets(logs.join('\n'));
+  assertNoSecrets(error.message);
+  assert.doesNotMatch(logs.join('\n'), /config/);
+  assert.doesNotMatch(logs.join('\n'), /SECRET_JD/);
+});
+
+test('requestGeminiWithRetry: 403 API disabled logs SERVICE_DISABLED and does not retry', async () => {
+  const { requestGeminiWithRetry } = require('../tailor');
+  let calls = 0;
+  const { error, logs } = await withSilentWarn(() => requestGeminiWithRetry(async () => {
+    calls += 1;
+    throw httpErr(
+      403,
+      'Gemini API has not been used in project 1 before or it is disabled.',
+      {
+        code: 403,
+        status: 'PERMISSION_DENIED',
+        details: [{
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'SERVICE_DISABLED',
+          domain: 'googleapis.com',
+        }],
+      }
+    );
+  }, { sleep: async () => { throw new Error('should not retry 403'); } }));
+
+  assert.equal(calls, 1);
+  assert.equal(error.message, '当前 Google Cloud 项目尚未启用 Gemini API。');
+  assert.match(logs[0], /reason=SERVICE_DISABLED/);
+  assert.match(logs[0], /not retrying/);
+});
+
+test('requestGeminiWithRetry: 429 retry is unchanged and still redacts keys', async () => {
+  const { requestGeminiWithRetry } = require('../tailor');
+  let calls = 0;
+  const delays = [];
+  const { result, logs } = await withSilentWarn(() => requestGeminiWithRetry(async () => {
+    calls += 1;
+    if (calls === 1) {
+      const err = quotaErr({ retryDelay: '36s' });
+      err.config = leakyGeminiErr(429).config;
+      throw err;
+    }
+    return { ok: true };
+  }, { sleep: async (ms) => { delays.push(ms); } }));
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [36000]);
+  assert.match(logs[0], /HTTP 429/);
+  assert.match(logs[0], /retry in 36000ms/);
+  assertNoSecrets(logs.join('\n'));
+});
+
+test('requestGeminiWithRetry: 503 retry is unchanged', async () => {
+  const { requestGeminiWithRetry, GEMINI_RETRY_DELAYS_MS } = require('../tailor');
+  let calls = 0;
+  const delays = [];
+  const { result } = await withSilentWarn(() => requestGeminiWithRetry(async () => {
+    calls += 1;
+    if (calls === 1) throw httpErr(503, 'The model is overloaded.');
+    return { ok: true };
+  }, { sleep: async (ms) => { delays.push(ms); } }));
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [GEMINI_RETRY_DELAYS_MS[0]]);
 });
 
 // ─── tailorResume — missing cv.md ─────────────────────────────────────────────
