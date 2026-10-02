@@ -37,6 +37,8 @@
 | 4p | Gemini HTTP error body diagnostics | `[x]` | Log redacted Google 403 fields; Chinese `formatLlmError`; 403 not retried; no extra Gemini |
 | 4q | JSON.parse SyntaxError diagnostics | `[x]` | Log redacted parse message/position/length; no full candidate; no save |
 | 4r | Gemini responseFormat structured output | `[x]` | REST `responseFormat.text` JSON Schema; keep parse/normalize/evidence; no extra Gemini |
+| 4s | Job Q&A schema override + evidence rules | `[x]` | Optional `callLLM` schema; Q&A `{answer}`; analyze schema unchanged; optimistic rollback |
+| 4t | Job Q&A no semantic-laundering claims | `[x]` | Prompt: no positive capability without ORIGINAL evidence; mixed items item-by-item; no extra Gemini |
 
 ---
 
@@ -123,6 +125,10 @@
 3. Returns `{ markdown, fit_score, detected_skills, job_title, company, location, archetype, cover_md, cover_letter_available }`
 4. Validates response shape; clamps `fit_score` to 0–100
 5. Rewrites Summary and Work Experience from real CV/profile evidence; Skills bold/reorder; Projects stay projects. Never invents employers, dates, official titles, or metrics. Optional `Official Title | Functional Focus` only when the source supports it.
+6. `callLLM(prompt, { responseSchema })` / `buildGeminiRequestBody(prompt, { responseSchema })` — omit override to keep the application-generation schema.
+
+### job-qa.js
+One later `callLLM` with `QA_RESPONSE_JSON_SCHEMA` `{ answer: string }`. Facts: current `user/cv.md`, `user/profile.md`, persisted `change_summary`, saved company/title. Tailored resume/cover are context only. Question and JD are not evidence. Named items without ORIGINAL support get no positive capability claim (including weaker “knowledge/understanding”). Mixed lists are answered item by item. `qa_thread` written only after `extractAnswer`.
 
 ### coverletter.js placeholders
 `{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`

@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Send } from 'lucide-react'
 import { api, type QaMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { canSendQuestion, parseQaThread, QA_SUGGESTIONS } from '@/lib/job-qa'
+import {
+  appendOptimisticUserMessage,
+  canSendQuestion,
+  parseQaThread,
+  QA_SUGGESTIONS,
+  releaseAskLock,
+  rollbackOptimisticUserMessage,
+  tryAcquireAskLock,
+} from '@/lib/job-qa'
 
 export function JobQaPanel({
   appId,
@@ -20,6 +28,7 @@ export function JobQaPanel({
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const askingRef = useRef(false)
 
   useEffect(() => {
     setMessages(parseQaThread(rawThread))
@@ -31,18 +40,22 @@ export function JobQaPanel({
 
   async function send(question: string) {
     const text = question.trim()
-    if (!canSendQuestion(text, asking)) return
+    if (!text) return
+    if (!tryAcquireAskLock(askingRef)) return
     setAsking(true)
     setError(null)
-    setDraft('')
-    setMessages((prev) => [...prev, { role: 'user', content: text, created_at: new Date().toISOString() }])
+    setMessages((prev) => appendOptimisticUserMessage(prev, text))
     try {
       const result = await api.askApplication(appId, text)
       setMessages(result.qa_thread)
       onThread(result.qa_thread)
+      setDraft('')
     } catch (err) {
+      setMessages((prev) => rollbackOptimisticUserMessage(prev, text))
       setError(err instanceof Error ? err.message : '回答失败，请重试。')
+      setDraft(text)
     } finally {
+      releaseAskLock(askingRef)
       setAsking(false)
     }
   }
@@ -54,7 +67,7 @@ export function JobQaPanel({
           <div>
             <h2 className="font-serif text-xl font-bold">岗位追问</h2>
             <p className="font-sans text-sm text-[var(--text-secondary)] mt-1">
-              申请后如果雇主继续问「你为什么对这个岗位感兴趣」，可以把问题贴在这里。回答只依据这份 JD、简历和求职信，不会改你已生成的文档。
+              申请后如果雇主继续问「你为什么对这个岗位感兴趣」，可以把问题贴在这里。回答依据原始简历、profile 和已核实信息；问题和 JD 本身不算经历证据。不会改你已生成的文档。
             </p>
           </div>
 

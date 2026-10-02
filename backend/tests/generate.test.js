@@ -314,6 +314,32 @@ test('Gemini request uses REST responseFormat structured output, not deprecated 
   ]);
 });
 
+test('generateApplication does not pass a responseSchema override', async () => {
+  let seen;
+  await generateApplication({
+    jd: 'TypeScript support role at Northwind Analytics in Melbourne.',
+    baseMd: FICTIONAL_CV,
+    generateCoverLetter: false,
+    hints: {},
+  }, {
+    callLLM: async (_prompt, opts = {}) => {
+      seen = opts;
+      return okPayload({ cover: false });
+    },
+  });
+  assert.equal(seen.responseSchema, undefined);
+});
+
+test('optional responseSchema override does not change the default generation schema', () => {
+  const { QA_RESPONSE_JSON_SCHEMA } = require('../job-qa');
+  const overridden = buildGeminiRequestBody('qa', { responseSchema: QA_RESPONSE_JSON_SCHEMA });
+  assert.deepEqual(overridden.generationConfig.responseFormat.text.schema, QA_RESPONSE_JSON_SCHEMA);
+  assert.equal(overridden.generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON');
+  const again = buildGeminiRequestBody('analyze');
+  assert.equal(again.generationConfig.responseFormat.text.schema, GENERATION_RESPONSE_JSON_SCHEMA);
+  assert.equal(GEMINI_GENERATION_CONFIG.responseFormat.text.schema, GENERATION_RESPONSE_JSON_SCHEMA);
+});
+
 test('structured-output JSON still goes through parseLlmJson without a repair call', () => {
   const payload = okPayload({ cover: false });
   const parsed = parseLlmJson(JSON.stringify(payload));

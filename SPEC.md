@@ -61,7 +61,7 @@ Job-Apply-Bot/
 │   ├── generation-lock.js         # In-flight duplicate generation guard
 │   ├── generation-abort.js        # Abort Gemini only on real client disconnect (not req close)
 │   ├── change-summary.js          # Local original→generated resume/cover diff (no LLM)
-│   ├── job-qa.js                  # Employer follow-up answers from saved JD/resume/cover (one LLM call)
+│   ├── job-qa.js                  # Employer follow-up answers; {answer} schema; original CV/profile first (one LLM call)
 │   ├── coverletter.js             # Cover letter template fill (used after the single LLM call)
 │   ├── evaluator.js               # Job fit evaluation
 │   ├── renderer.js                # Oh My CV markdown → HTML
@@ -118,7 +118,7 @@ Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
 | GET | `/api/applications/:id/pdf?type=resume\|coverletter` | On-demand PDF stream |
 | POST | `/api/applications/:id/rescore` | Re-score fit against JD via LLM |
 | POST | `/api/applications/:id/evaluate` | Run full job fit evaluation |
-| POST | `/api/applications/:id/ask` | Answer an employer follow-up question from the saved JD/resume/cover/profile; persist `qa_thread`; does not rewrite documents |
+| POST | `/api/applications/:id/ask` | Answer an employer follow-up from original CV/profile/verified notes + JD context; persist `qa_thread` only on success; does not rewrite documents |
 | POST | `/api/preview` | Render markdown → HTML (live preview) |
 | GET | `/api/profile` | Read `user/profile.md` |
 | PUT | `/api/profile` | Save `user/profile.md` |
@@ -153,7 +153,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). `callLLM` / `buildGeminiRequestBody` accept an optional `responseSchema` override; `/api/analyze` does not pass one and keeps the generation schema. Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {
@@ -186,7 +186,7 @@ Retries log `logical generation request: 1` and `HTTP/API attempts: N`.
 
 After the single Gemini generation, `change-summary.js` locally diffs the original resume (`baseMd` / `user/cv.md`) against the saved markdown. Only verified textual diffs are stored in `applications.change_summary`. JD keywords are attached only when they occur in both the actual diff and the JD. Gemini-claimed blurbs are ignored. Comparison failure never blocks save; the UI then shows 暂时无法生成可靠的改动概要。 Old rows with a null `change_summary` stay valid and are not regenerated.
 
-`POST /api/applications/:id/ask` is a later, optional LLM call. It drafts an answer to an employer follow-up question using the stored JD, tailored resume, cover letter, profile, and prior `qa_thread`. It does not regenerate or rewrite resume/cover/JD/change_summary. Answers must stay factually grounded in those sources.
+`POST /api/applications/:id/ask` is a later, optional LLM call. It drafts an answer to an employer follow-up question. Facts come from `user/cv.md` (current original CV file, not a per-application snapshot), `user/profile.md`, persisted `change_summary` / verified notes, and saved company/title. Tailored resume and cover letter are context only and cannot be the sole source of a new fact. The user question and JD are not candidate evidence. A named tool/technology in the question that lacks ORIGINAL evidence cannot take any positive capability claim (used, proficient, familiar, knowledge, foundational knowledge, understanding, exposure, comfort). Mixed lists (Git + Azure DevOps + CI/CD) must be answered item by item; unsupported items may only be honestly denied plus transferable foundations from supported skills. Gemini uses a dedicated `{ "answer": string }` `responseFormat` schema (`additionalProperties: false`); analyze generation schema is unchanged. Parser path remains collectGeminiText → parseLlmJson → extractAnswer (`result.answer` must be a non-empty string). `qa_thread` is written only after a valid answer. It does not regenerate or rewrite resume/cover/JD/change_summary. No extra Gemini/repair call.
 
 Tailoring rules (enforced via `prompts/tailor.md`):
 - **Priority:** Summary → Work Experience → Skills → Projects → other
@@ -326,7 +326,7 @@ On first run (table empty), `db.js` imports `user/cv.md` as `"Master Resume"` wi
 **Pages:**
 - `NewApplication` — paste JD, run AI analysis with a real-stage progress panel, informational elapsed wait time, and 取消生成 (AbortController); no automatic time-based abort; Resume Template dropdown auto-selects the default template. Default AI options: 简历 on, 求职信 off. After successful save, stay on the page with 下载简历 (and 下载求职信 if generated) via existing `GET /api/applications/:id/pdf`, plus 查看分析结果 → `/editor/:id`
 - `History` — table of all past applications with inline status editing, always-visible row actions (download/edit/delete), plus 全部标记为已申请 (confirm dialog → one bulk status PATCH, no LLM)
-- `Editor` — split markdown editor + live preview, PDF download; 分析 tab is a compact Chinese summary from persisted `fit_score` + verified `change_summary` / optional evidence matrix (no extra Gemini call); resume/cover tabs still show the verified change banner; 追问 tab uses `POST /api/applications/:id/ask`
+- `Editor` — split markdown editor + live preview, PDF download; 分析 tab is a compact Chinese summary from persisted `fit_score` + verified `change_summary` / optional evidence matrix (no extra Gemini call); resume/cover tabs still show the verified change banner; 追问 tab uses `POST /api/applications/:id/ask` (optimistic user message rolls back on failure; sync `askingRef` lock)
 - `Dashboard` — header + 新建申请; five stat cards; 申请状态 / 待跟进; 最近申请 / 本周动态; 52-week heatmap
 - `Style` — live CSS editor with theme switcher
 - `Settings` — tabs for CV, Profile, and Cover Letter Template editors

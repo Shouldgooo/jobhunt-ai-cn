@@ -1,3 +1,16 @@
+## 2026-10-02 — Job Q&A: no weaker claims for unsupported tools
+
+- Tighten `buildQaPrompt`: a named tool/technology without ORIGINAL evidence cannot take any positive capability claim (used, proficient, familiar, knowledge, understanding, exposure, comfort)
+- Require item-by-item answers on mixed lists (Git / Azure DevOps / CI/CD); allow honest denial plus transferable foundations only
+- Forbid semantic laundering (“foundational knowledge” / “understand concepts”); keep Q&A `{answer}` schema and one Gemini call
+
+## 2026-10-02 — Job Q&A structured-output schema + evidence rules
+
+- Let `callLLM` / `buildGeminiRequestBody` take an explicit optional `responseSchema`; `/api/analyze` still uses the application-generation schema
+- Job Q&A sends `{ answer: string }` with `additionalProperties: false` and `mimeType: APPLICATION_JSON`; parse `result.answer` only after collectGeminiText → parseLlmJson
+- Ground answers in original CV, profile, and persisted verified notes; treat the user question and JD as non-evidence; keep years / SaaS / tools honest
+- Roll back the optimistic user message and keep the input on ask failure; lock send with a sync `askingRef`
+
 ## 2026-10-02 — Gemini structured output via responseFormat
 
 - Send generateContent `generationConfig.responseFormat.text` with `mimeType: APPLICATION_JSON` (REST MimeType enum, not the IANA string `application/json`) and the current generation JSON Schema; keep `thinkingLevel: low`

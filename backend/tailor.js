@@ -539,10 +539,24 @@ function parseLlmJson(text, { finishReason } = {}) {
   }
 }
 
-function buildGeminiRequestBody(prompt) {
+function buildGeminiGenerationConfig(responseSchema) {
+  return {
+    thinkingConfig: { thinkingLevel: GEMINI_THINKING_LEVEL },
+    responseFormat: {
+      text: {
+        mimeType: 'APPLICATION_JSON',
+        schema: responseSchema,
+      },
+    },
+  };
+}
+
+function buildGeminiRequestBody(prompt, { responseSchema } = {}) {
   return {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: GEMINI_GENERATION_CONFIG,
+    generationConfig: responseSchema
+      ? buildGeminiGenerationConfig(responseSchema)
+      : GEMINI_GENERATION_CONFIG,
   };
 }
 
@@ -560,7 +574,7 @@ function logUsageMetadata(data) {
   if (parts.length) console.log(`[gemini] usage ${parts.join(' ')}`);
 }
 
-async function callLLM(prompt, { tracker, signal, onRetry, startedAt } = {}) {
+async function callLLM(prompt, { tracker, signal, onRetry, startedAt, responseSchema } = {}) {
   throwIfAborted(signal);
   const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 
@@ -590,7 +604,7 @@ async function callLLM(prompt, { tracker, signal, onRetry, startedAt } = {}) {
       tracker.httpAttempts += 1;
       console.log(`[gemini] generateContent call #${tracker.httpAttempts}`);
     }
-    const body = buildGeminiRequestBody(prompt);
+    const body = buildGeminiRequestBody(prompt, { responseSchema });
     const res = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`,
       body,

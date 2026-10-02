@@ -276,6 +276,7 @@ api.post('/applications/:id/ask', async (req, res) => {
       jd: record.jd_text,
       resumeMd: record.resume_md,
       coverMd: record.cover_md,
+      changeSummary: record.change_summary,
       qaThread: record.qa_thread,
       question,
     });
