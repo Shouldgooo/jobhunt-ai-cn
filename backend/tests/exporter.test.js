@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { resolvePuppeteerCacheDir, resolveChromeExecutable } = require('../exporter');
-const { parseFrontMatter, renderResume, markdownWithRequiredHeader } = require('../renderer');
+const { parseFrontMatter, renderResume, renderCoverLetter, markdownWithRequiredHeader } = require('../renderer');
 
 test('resolvePuppeteerCacheDir ignores an empty sandbox cache and uses ~/.cache/puppeteer', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pup-empty-'));
@@ -47,4 +47,22 @@ Original.`;
   const html = renderResume(bodyOnly, 'classic', { headerSource: source });
   assert.ok(html.indexOf('class="resume-header"') < html.indexOf('PROFILE'));
   assert.match(html, /<h1 class="resume-name">Jane Doe<\/h1>/);
+});
+
+test('cover letter preview HTML is the same document Puppeteer would print', () => {
+  const source = `---
+name: Jane Doe
+header:
+  - text: "email: test@example.com"
+    link: mailto:test@example.com
+---
+## Summary
+Original.`;
+  const letter = 'Dear Hiring Manager,\n\nI am applying for the role.';
+  const preview = renderCoverLetter(letter, { headerSource: source });
+  const pdfHtml = renderCoverLetter(letter, { headerSource: source });
+  assert.equal(preview, pdfHtml);
+  assert.match(preview, /<h1 class="cover-letter-name">Jane Doe<\/h1>/);
+  assert.match(preview, /Dear Hiring Manager/);
+  assert.match(preview, /test@example.com/);
 });

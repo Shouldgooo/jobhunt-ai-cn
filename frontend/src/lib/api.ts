@@ -97,6 +97,9 @@ export interface AnalyzeResult {
   location?: string
   detected_skills: string[]
   cover_letter_available: boolean
+  resume_available?: boolean
+  cover_letter_error?: string | null
+  cover_letter_warning?: string
   theme: string
 }
 
@@ -117,6 +120,8 @@ export const api = {
     theme?: string
     resume_template_id?: number
     generate_cover_letter?: boolean
+    generate_resume?: boolean
+    cover_letter_notes?: string
   }, signal?: AbortSignal): Promise<AnalyzeResult> {
     return api.analyzeWithProgress(body, { signal })
   },
@@ -131,6 +136,8 @@ export const api = {
     theme?: string
     resume_template_id?: number
     generate_cover_letter?: boolean
+    generate_resume?: boolean
+    cover_letter_notes?: string
   }, opts: {
     signal?: AbortSignal
     onEvent?: (event: AnalyzeStreamEvent<AnalyzeResult>) => void
@@ -139,6 +146,11 @@ export const api = {
     if (DEMO_MODE) {
       triggerDemo()
       const { DEMO_ANALYZE_RESULT } = await import('./demo-data')
+      const demoResult: AnalyzeResult = {
+        ...DEMO_ANALYZE_RESULT,
+        resume_available: body.generate_resume !== false,
+        cover_letter_available: body.generate_cover_letter === true,
+      }
       const demoEvents: AnalyzeStreamEvent<AnalyzeResult>[] = [
         { type: 'progress', stage: 'accepted', progress: 5, message: '请求已接受…' },
         { type: 'progress', stage: 'validating', progress: 10, message: '正在验证职位信息…' },
@@ -147,10 +159,10 @@ export const api = {
         { type: 'progress', stage: 'generating', progress: 35, message: 'AI 正在分析 JD 并生成定制简历…' },
         { type: 'progress', stage: 'received', progress: 85, message: '正在处理 AI 返回结果…' },
         { type: 'progress', stage: 'saving', progress: 95, message: '正在保存申请记录…' },
-        { type: 'complete', progress: 100, message: '生成完成', application: DEMO_ANALYZE_RESULT },
+        { type: 'complete', progress: 100, message: '生成完成', application: demoResult },
       ]
       for (const event of demoEvents) emit(event)
-      return DEMO_ANALYZE_RESULT
+      return demoResult
     }
 
     const res = await fetch(`${BASE}/analyze`, {
@@ -256,9 +268,31 @@ export const api = {
     return `${BASE}/applications/${id}/pdf?type=${type}`
   },
 
-  preview(markdown: string, type: 'resume' | 'coverletter', theme?: string): Promise<{ html: string }> {
+  preview(markdown: string, type: 'resume' | 'coverletter', theme?: string, headerSource?: string): Promise<{ html: string }> {
     if (DEMO_MODE) return fetch(`${import.meta.env.BASE_URL}demo/preview.html`).then(r => r.text()).then(html => ({ html }))
-    return request('/preview', { method: 'POST', body: JSON.stringify({ markdown, type, theme }) })
+    return request('/preview', { method: 'POST', body: JSON.stringify({ markdown, type, theme, headerSource }) })
+  },
+
+  regenerateCoverLetter(id: number, body: { confirm?: boolean; notes?: string } = {}): Promise<{
+    cover_md: string
+    resume_md: string
+    resume_unchanged: boolean
+    cover_letter_available: boolean
+    cover_letter_warning?: string
+  }> {
+    if (DEMO_MODE) {
+      triggerDemo()
+      return import('./demo-data').then(m => {
+        const app = m.DEMO_APPLICATIONS.find(a => a.id === id) ?? m.DEMO_APPLICATIONS[0]
+        return {
+          cover_md: m.DEMO_COVER_MD,
+          resume_md: app.resume_md,
+          resume_unchanged: true,
+          cover_letter_available: true,
+        }
+      })
+    }
+    return request(`/applications/${id}/cover-letter`, { method: 'POST', body: JSON.stringify(body) })
   },
 
   getProfile(): Promise<{ profile: string }> {

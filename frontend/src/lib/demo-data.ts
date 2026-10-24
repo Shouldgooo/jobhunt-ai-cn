@@ -184,6 +184,7 @@ export const DEMO_ANALYZE_RESULT: AnalyzeResult = {
   location: 'Sydney, NSW',
   detected_skills: ['TypeScript', 'React', 'Node.js', 'PostgreSQL', 'AWS', 'Docker', 'Redis'],
   cover_letter_available: true,
+  resume_available: true,
   theme: 'modern',
 }
 

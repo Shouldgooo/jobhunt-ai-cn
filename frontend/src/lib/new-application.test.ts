@@ -17,10 +17,13 @@ import {
   nextCoverLetterSelection,
   pdfDownloadFilename,
   shouldShowCoverLetterDownload,
+  shouldShowResumeDownload,
+  usesAiGeneration,
 } from './new-application.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const pageSrc = fs.readFileSync(path.join(here, '../pages/NewApplication.tsx'), 'utf8')
+const editorSrc = fs.readFileSync(path.join(here, '../pages/Editor.tsx'), 'utf8')
 const helperSrc = fs.readFileSync(path.join(here, 'new-application.ts'), 'utf8')
 const apiSrc = fs.readFileSync(path.join(here, 'api.ts'), 'utf8')
 const pdfRoute = fs.readFileSync(path.join(here, '../../../backend/server.js'), 'utf8')
@@ -32,15 +35,15 @@ test('resume is selected by default and cover letter is not', () => {
   assert.equal(DEFAULT_AI_COVER_LETTER, false)
 })
 
-test('user can manually select cover letter when resume generation is on', () => {
+test('user can manually select cover letter independently of resume generation', () => {
   assert.equal(canToggleCoverLetter(true), true)
+  assert.equal(canToggleCoverLetter(false), true)
   assert.equal(nextCoverLetterSelection(true, false, true), true)
   assert.equal(nextCoverLetterSelection(true, true, false), false)
-})
-
-test('cover letter cannot stay selected if resume generation is off', () => {
-  assert.equal(canToggleCoverLetter(false), false)
-  assert.equal(nextCoverLetterSelection(false, true, true), false)
+  assert.equal(nextCoverLetterSelection(false, false, true), true)
+  assert.equal(usesAiGeneration(true, false, true), true)
+  assert.equal(usesAiGeneration(true, true, false), true)
+  assert.equal(usesAiGeneration(true, false, false), false)
 })
 
 test('download buttons appear only after successful save with an application id', () => {
@@ -64,6 +67,8 @@ test('successful generation exposes 下载简历; cover-letter download only whe
   assert.equal(shouldShowCoverLetterDownload(undefined), false)
   assert.deepEqual(generationDownloadTypes(false), ['resume'])
   assert.deepEqual(generationDownloadTypes(true), ['resume', 'coverletter'])
+  assert.equal(shouldShowResumeDownload(false), false)
+  assert.deepEqual(generationDownloadTypes({ resumeAvailable: false, coverLetterAvailable: true }), ['coverletter'])
   assert.match(pageSrc, /下载简历/)
   assert.match(pageSrc, /下载求职信/)
   assert.match(pageSrc, /查看分析结果 →/)
@@ -80,7 +85,8 @@ test('PDF download uses the existing per-application export URL', () => {
   assert.equal(isExistingPdfExportUrl(resume, 12, 'resume'), true)
   assert.equal(isExistingPdfExportUrl(cover, 12, 'coverletter'), true)
   assert.equal(resume.includes('/applications/12/pdf'), true)
-  assert.equal(pdfDownloadFilename({ company: 'Northwind', job_title: 'IT Support' }, 'resume'), 'Northwind_IT Support_resume.pdf')
+  assert.equal(pdfDownloadFilename({ company: 'Northwind', job_title: 'IT Support' }, 'resume'), 'SIHUA_TANG_IT_Support_Northwind_Resume.pdf')
+  assert.equal(pdfDownloadFilename({ company: 'Northwind Analytics', job_title: 'Junior Software Developer' }, 'coverletter'), 'SIHUA_TANG_Junior_Software_Developer_Northwind_Analytics_Cover_Letter.pdf')
 })
 
 test('resume and cover-letter downloads add zero Gemini calls and do not create applications', () => {
@@ -101,6 +107,8 @@ test('New Application defaults, stays on page after AI success, and keeps cancel
   assert.match(pageSrc, /ai_customize: DEFAULT_AI_RESUME/)
   assert.match(pageSrc, /ai_cover_letter: DEFAULT_AI_COVER_LETTER/)
   assert.match(pageSrc, /generate_cover_letter: form\.ai_cover_letter/)
+  assert.match(pageSrc, /generate_resume: form\.ai_customize/)
+  assert.match(pageSrc, /cover_letter_notes/)
   assert.match(pageSrc, />简历</)
   assert.match(pageSrc, />求职信</)
   assert.match(pageSrc, /canShowGenerationDownloads/)
@@ -137,6 +145,9 @@ test('downloadExistingPdf hits the saved application PDF once and never regenera
       urls.push(String(url))
       return {
         ok: true,
+        headers: { get: (key: string) => key.toLowerCase() === 'content-disposition'
+          ? 'attachment; filename="SIHUA_TANG_IT_Support_Northwind_Resume.pdf"'
+          : null },
         blob: async () => new Blob(['pdf']),
         json: async () => ({}),
       } as Response
@@ -145,6 +156,7 @@ test('downloadExistingPdf hits the saved application PDF once and never regenera
       urls.push(String(url))
       return {
         ok: true,
+        headers: { get: () => null },
         blob: async () => new Blob(['pdf']),
         json: async () => ({}),
       } as Response
@@ -158,12 +170,22 @@ test('downloadExistingPdf hits the saved application PDF once and never regenera
   assert.equal(clicks.length, 2)
   assert.equal(isExistingPdfExportUrl(urls[0], 12, 'resume'), true)
   assert.equal(isExistingPdfExportUrl(urls[1], 12, 'coverletter'), true)
-  assert.equal(clicks[0], 'Northwind_IT Support_resume.pdf')
-  assert.equal(clicks[1], 'Northwind_IT Support_coverletter.pdf')
+  assert.equal(clicks[0], 'SIHUA_TANG_IT_Support_Northwind_Resume.pdf')
+  assert.equal(clicks[1], 'SIHUA_TANG_IT_Support_Northwind_Cover_Letter.pdf')
+})
+
+test('PDF filenames stay ASCII underscores and prefer Content-Disposition', () => {
+  assert.match(helperSrc, /parseContentDispositionFilename/)
+  assert.match(editorSrc, /downloadExistingPdf/)
+  assert.doesNotMatch(editorSrc, /\$\{app\?\.company\}_\$\{app\?\.job_title\}/)
+  assert.match(pdfRoute, /pdfExportFilename/)
+  assert.match(pdfRoute, /contentDisposition/)
 })
 
 test('success copy stays compact for resume-only vs resume+cover', () => {
   assert.equal(generationSuccessCopy(false).title, '生成完成')
   assert.equal(generationSuccessCopy(false).body, '简历已根据该职位完成定制。')
   assert.equal(generationSuccessCopy(true).body, '简历和求职信已完成生成。')
+  assert.equal(generationSuccessCopy({ resumeAvailable: false, coverLetterAvailable: true }).body, '求职信已根据该职位完成生成。')
+  assert.match(generationSuccessCopy({ resumeAvailable: true, coverLetterError: '模型没有返回可用的求职信内容。' }).body, /求职信生成失败/)
 })

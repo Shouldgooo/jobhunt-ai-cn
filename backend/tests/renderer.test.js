@@ -7,6 +7,7 @@ const {
   inlineMd,
   parseFrontMatter,
   renderResume,
+  renderCoverLetter,
   preserveResumeHeader,
   hasResumeHeader,
   assertResumeHeader,
@@ -257,6 +258,53 @@ Keep this.`;
     () => markdownWithRequiredHeader(incomplete, SAMPLE_FM),
     (err) => err.code === 'RESUME_HEADER_REQUIRED'
   );
+});
+
+test('cover letter preview restores header when AI omitted YAML', () => {
+  const html = renderCoverLetter('Dear Hiring Manager,\n\nI am applying for the role.', { headerSource: SAMPLE_FM });
+  assert.match(html, /<h1 class="cover-letter-name">Jane Doe<\/h1>/);
+  assert.match(html, /class="cover-letter-header"/);
+  assert.match(html, /Dear Hiring Manager/);
+  assert.ok(html.indexOf('cover-letter-header') < html.indexOf('Dear Hiring Manager'));
+});
+
+test('cover letter keeps user-edited contacts and still shows the name', () => {
+  const edited = `---
+name: Jane Doe
+header:
+  - text: "email: edited@example.com"
+    link: mailto:edited@example.com
+---
+
+Dear Hiring Manager,
+
+Edited letter.`;
+  const html = renderCoverLetter(edited, { headerSource: SAMPLE_FM });
+  assert.match(html, /edited@example.com/);
+  assert.doesNotMatch(html, /test@example.com/);
+  assert.match(html, /Edited letter/);
+});
+
+test('cover letter preview and PDF HTML match', () => {
+  const md = 'Dear Hiring Manager,\n\nSame letter.';
+  const preview = renderCoverLetter(md, { headerSource: SAMPLE_FM });
+  const pdf = renderCoverLetter(md, { headerSource: SAMPLE_FM });
+  assert.equal(preview, pdf);
+});
+
+test('cover letter missing required name is an explicit error', () => {
+  assert.throws(
+    () => renderCoverLetter('Dear Hiring Manager,', { headerSource: false }),
+    (err) => err.code === 'RESUME_HEADER_REQUIRED' && err.statusCode === 400
+  );
+});
+
+test('classic modern and sidebar resume themes still render a header', () => {
+  for (const theme of ['classic', 'modern', 'sidebar']) {
+    const html = renderResume(SAMPLE_FM, theme);
+    assert.match(html, /<h1 class="resume-name">Jane Doe<\/h1>/, theme);
+    assert.match(html, /class="resume-header"/, theme);
+  }
 });
 
 test('renderResume surfaces a missing source name instead of hiding the header', () => {

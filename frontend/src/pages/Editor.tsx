@@ -10,6 +10,14 @@ import { Loader2, Download, ArrowLeft, RefreshCw, Save, BookmarkPlus, Sparkles }
 import { VerifiedChangeSummary } from '@/components/VerifiedChangeSummary'
 import { AnalysisPanel } from '@/components/AnalysisPanel'
 import { JobQaPanel } from '@/components/JobQaPanel'
+import {
+  applyCoverLetterUpdate,
+  COVER_REGENERATE_CONFIRM,
+  documentFieldForTab,
+  shouldConfirmCoverRegenerate,
+  shouldFlushDocumentOnTabChange,
+} from '@/lib/editor-documents'
+import { downloadExistingPdf } from '@/lib/new-application'
 
 type Tab = 'resume' | 'coverletter' | 'analysis' | 'qa'
 type PanelTab = 'editor' | 'preview'
@@ -44,6 +52,7 @@ export default function Editor() {
   const [rescoring, setRescoring]       = useState(false)
   const [rescoreJd, setRescoreJd]       = useState('')
   const [rescoreError, setRescoreError] = useState<string | null>(null)
+  const [coverLoading, setCoverLoading] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -62,7 +71,12 @@ export default function Editor() {
     setLoadingPreview(true)
     try {
       const theme = currentTheme ?? app?.theme
-      const { html } = await api.preview(md, currentTab, currentTab === 'resume' ? theme : undefined)
+      const { html } = await api.preview(
+        md,
+        currentTab,
+        currentTab === 'resume' ? theme : undefined,
+        currentTab === 'coverletter' ? app?.resume_md : undefined,
+      )
       setPreview(html)
     } catch (e) {
       setError(e instanceof Error ? e.message : '预览失败')
@@ -91,7 +105,7 @@ export default function Editor() {
     setSaving(true)
     setSaveError(null)
     try {
-      const field = currentTab === 'resume' ? 'resume_md' : 'cover_md'
+      const field = documentFieldForTab(currentTab === 'coverletter' ? 'coverletter' : 'resume')
       await api.patchApplication(appId, { [field]: value })
       if (currentApp) setApp({ ...currentApp, [field]: value })
     } catch {
@@ -113,6 +127,17 @@ export default function Editor() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [markdown, tab, app, save])
 
+  function changeTab(next: Tab) {
+    if (shouldFlushDocumentOnTabChange(tab, next) && saveTimer.current) {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = null
+      if (tab === 'resume' || tab === 'coverletter') {
+        void save(markdown, tab, app)
+      }
+    }
+    setTab(next)
+  }
+
   function handleMarkdownChange(value: string) {
     setMarkdown(value)
     setSaveError(null)
@@ -120,24 +145,35 @@ export default function Editor() {
     saveTimer.current = setTimeout(() => save(value, tab, app), 800)
   }
 
+  async function handleGenerateCover() {
+    if (!app || coverLoading) return
+    if (shouldConfirmCoverRegenerate(app.cover_md) && !window.confirm(COVER_REGENERATE_CONFIRM)) return
+    setCoverLoading(true)
+    setError(null)
+    try {
+      const result = await api.regenerateCoverLetter(appId, { confirm: true })
+      const next = applyCoverLetterUpdate(app, result.cover_md)
+      setApp(next)
+      if (tab === 'coverletter') {
+        setMarkdown(result.cover_md)
+        refreshPreview(result.cover_md, 'coverletter')
+      }
+      if (result.cover_letter_warning) setError(result.cover_letter_warning)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '求职信生成失败')
+    } finally {
+      setCoverLoading(false)
+    }
+  }
+
   async function handleDownload(type: 'resume' | 'coverletter') {
     if (pdfLoading) return
     setPdfLoading(type)
     try {
-      const res = await fetch(api.getPdfUrl(appId, type))
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error ?? 'PDF 生成失败')
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${app?.company}_${app?.job_title}_${type}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(url), 100)
+      await downloadExistingPdf(appId, type, {
+        company: app?.company,
+        job_title: app?.job_title,
+      }, fetch, api.getPdfUrl(appId, type))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PDF 生成失败')
     } finally {
@@ -268,10 +304,20 @@ export default function Editor() {
             {pdfLoading === 'resume' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             简历
           </Button>
+          {tab === 'coverletter' && (
+            <Button
+              size="sm" variant="outline" className="h-7 text-xs hidden sm:flex"
+              onClick={handleGenerateCover}
+              disabled={coverLoading || !app?.jd_text}
+            >
+              {coverLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {app?.cover_md ? '重新生成' : '生成求职信'}
+            </Button>
+          )}
           <Button
             size="sm" variant="outline" className="h-7 text-xs hidden sm:flex"
             onClick={() => handleDownload('coverletter')}
-            disabled={pdfLoading !== null}
+            disabled={pdfLoading !== null || !app?.cover_md}
           >
             {pdfLoading === 'coverletter' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             求职信
@@ -292,7 +338,7 @@ export default function Editor() {
         {(['resume', 'coverletter', 'analysis', 'qa'] as Tab[]).map(t => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => changeTab(t)}
             className={`px-5 py-2 font-mono text-xs uppercase tracking-wider border-b-2 -mb-px transition-colors ${
               tab === t
                 ? 'border-[var(--border)] text-[var(--text-primary)]'
@@ -314,11 +360,16 @@ export default function Editor() {
       {app && tab !== 'analysis' && tab !== 'qa' && <VerifiedChangeSummary raw={app.change_summary} />}
 
       {tab === 'coverletter' && app && !app.cover_md && (
-        <div className="border-b border-[var(--border)] bg-neutral-100 px-4 py-2 flex items-center gap-2 flex-shrink-0">
-          <div className="w-2.5 h-2.5 bg-neutral-1000 flex-shrink-0" />
+        <div className="border-b border-[var(--border)] bg-neutral-100 px-4 py-2 flex items-center justify-between gap-2 flex-shrink-0">
           <span className="font-mono text-xs text-[var(--text-primary)] uppercase tracking-wider">
-            求职信模板未找到 — 请添加 <code className="normal-case">user/cover-letter/template.md</code> 以启用
+            {app.jd_text ? '尚未生成求职信 — 可根据当前职位单独生成' : '该申请没有职位描述，无法生成求职信'}
           </span>
+          {app.jd_text && (
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleGenerateCover} disabled={coverLoading}>
+              {coverLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              生成求职信
+            </Button>
+          )}
         </div>
       )}
 

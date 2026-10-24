@@ -61,13 +61,29 @@ function renderResumeWithCss(markdown, css, theme, { headerSource } = {}) {
   return buildHTML(name, headerItems, bodyHtml, css);
 }
 
+const COVER_LETTER_CSS = `
+  @page { size: A4; margin: 18mm; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.5; margin: 0; color: #111; }
+  .cover-letter { max-width: 100%; }
+  .cover-letter-header { text-align: left; margin: 0 0 1.4em 0; padding-bottom: 0.7em; border-bottom: 1px solid #222; }
+  .cover-letter-name { font-size: 16pt; font-weight: bold; margin: 0 0 0.25em 0; letter-spacing: 0.01em; }
+  .cover-letter-contact { font-size: 10pt; color: #333; }
+  .cover-letter-contact a { color: #111; text-decoration: none; }
+  .cover-letter-body p { margin: 0 0 0.85em 0; }
+  strong { font-weight: bold; }
+`;
+
 /**
- * Render plain cover letter markdown to a complete HTML document string.
+ * Render cover letter markdown to a complete HTML document string.
+ * Header identity is restored from the source CV/template when the letter has no YAML name.
  * @param {string} markdown
+ * @param {{ headerSource?: string|false|null }} [options]
  * @returns {string}
  */
-function renderCoverLetter(markdown) {
-  const noComments = markdown.split('\n').filter(l => !l.trimStart().startsWith('#')).join('\n');
+function renderCoverLetter(markdown, { headerSource } = {}) {
+  const prepared = markdownWithRequiredHeader(markdown, headerSource);
+  const { name, headerItems, body } = parseFrontMatter(prepared);
+  const noComments = body.split('\n').filter(l => !l.trimStart().startsWith('#')).join('\n');
   const withBold   = noComments.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   const bodyHtml   = withBold
     .split(/\n{2,}/)
@@ -76,20 +92,7 @@ function renderCoverLetter(markdown) {
     .map(b => `<p>${b.replace(/\n/g, '<br>')}</p>`)
     .join('\n');
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  body { font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.5; margin: 50px 60px; color: #000; }
-  p { margin: 0 0 0.8em 0; }
-  strong { font-weight: bold; }
-</style>
-</head>
-<body>
-${bodyHtml}
-</body>
-</html>`;
+  return buildCoverLetterHTML(name, headerItems, bodyHtml);
 }
 
 // ─── Front matter parser ───────────────────────────────────────────────────────
@@ -323,6 +326,55 @@ function buildContactHtml(headerItems) {
     .join(' | ');
 }
 
+function isLinkedInContact(item) {
+  return item.kind === 'linkedin'
+    || (item.link && /linkedin\.com/i.test(item.link))
+    || /linkedin/i.test(item.display);
+}
+
+/** Letter header: name + email / phone / location / LinkedIn from the same YAML contacts. */
+function buildCoverLetterContactHtml(headerItems) {
+  const parsed = headerItems.map(parseContactItem);
+  const email = parsed.find(p => p.kind === 'email');
+  const phone = parsed.find(p => p.kind === 'mobile' || p.kind === 'phone');
+  const location = parsed.find(p => p.kind === 'location' || p.kind === 'address');
+  const linkedin = parsed.find(isLinkedInContact);
+  const ordered = [email, phone, location, linkedin].filter(Boolean);
+  if (!ordered.length) return buildContactHtml(headerItems);
+
+  return ordered.map((item) => {
+    const node = renderContactNode(item);
+    if (node) return node;
+    return item.link
+      ? `<a href="${esc(item.link)}">${esc(item.display)}</a>`
+      : `<span>${esc(item.display)}</span>`;
+  }).join(' | ');
+}
+
+function buildCoverLetterHTML(name, headerItems, bodyHtml) {
+  const contactHtml = buildCoverLetterContactHtml(headerItems);
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+${COVER_LETTER_CSS}
+</style>
+</head>
+<body>
+<article class="cover-letter">
+  <header class="cover-letter-header">
+    <h1 class="cover-letter-name">${esc(name)}</h1>
+    <div class="cover-letter-contact">${contactHtml}</div>
+  </header>
+  <div class="cover-letter-body">
+${bodyHtml}
+  </div>
+</article>
+</body>
+</html>`;
+}
+
 function buildHTML(name, headerItems, bodyHtml, css) {
   const contactHtml = buildContactHtml(headerItems);
 
@@ -358,6 +410,7 @@ module.exports = {
   renderResume,
   renderResumeWithCss,
   renderCoverLetter,
+  buildCoverLetterContactHtml,
   renderBlock,
   inlineMd,
   parseFrontMatter,

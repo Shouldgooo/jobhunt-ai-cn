@@ -25,6 +25,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: {
+    fs: {
+      allow: [path.resolve(__dirname, '..')],
+    },
     port: 5173,
     proxy: {
       '/api': {

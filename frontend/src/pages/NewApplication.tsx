@@ -26,6 +26,8 @@ import {
   generationSuccessCopy,
   nextCoverLetterSelection,
   shouldShowCoverLetterDownload,
+  shouldShowResumeDownload,
+  usesAiGeneration,
 } from '@/lib/new-application'
 
 export default function NewApplication() {
@@ -42,6 +44,7 @@ export default function NewApplication() {
     resume_template_id: 0,   // 0 = use default
     ai_customize: DEFAULT_AI_RESUME,
     ai_cover_letter: DEFAULT_AI_COVER_LETTER,
+    cover_letter_notes: '',
   })
   const lastAuto = useRef({ job_title: '', company: '', location: '' })
   const [loading, setLoading]       = useState(false)
@@ -100,7 +103,7 @@ export default function NewApplication() {
   }
 
   const hasJd = form.jd.trim().length > 0
-  const useAI = hasJd && form.ai_customize
+  const useAI = usesAiGeneration(hasJd, form.ai_customize, form.ai_cover_letter)
   const extracted = parseJd(form.jd)
 
   async function handleSubmit() {
@@ -111,9 +114,16 @@ export default function NewApplication() {
       setError('请先粘贴职位描述。')
       return
     }
+    const resolvedTitle = form.job_title || extracted.job_title
+    const resolvedCompany = form.company || extracted.company
     if (!useAI && (!form.job_title || !form.company)) {
       genLock.current.finish()
       setError('职位名称和公司为必填项。')
+      return
+    }
+    if (form.ai_cover_letter && (!resolvedTitle || !resolvedCompany)) {
+      genLock.current.finish()
+      setError('生成求职信需要职位名称和公司，请手动填写。')
       return
     }
 
@@ -146,7 +156,9 @@ export default function NewApplication() {
           source:              form.source,
           theme:               form.theme,
           resume_template_id:  form.resume_template_id || undefined,
+          generate_resume: form.ai_customize,
           generate_cover_letter: form.ai_cover_letter,
+          cover_letter_notes: form.cover_letter_notes || undefined,
         }, {
           signal: controller.signal,
           onEvent: (event) => setGenProgress(s => applyAnalyzeEvent(s, event)),
@@ -407,31 +419,43 @@ export default function NewApplication() {
               <input
                 type="checkbox"
                 checked={form.ai_customize}
-                onChange={e => {
-                  const checked = e.target.checked
-                  setForm(f => ({
-                    ...f,
-                    ai_customize: checked,
-                    ai_cover_letter: nextCoverLetterSelection(checked, f.ai_cover_letter, f.ai_cover_letter),
-                  }))
-                }}
+                onChange={e => setForm(f => ({ ...f, ai_customize: e.target.checked }))}
                 className="w-3.5 h-3.5"
               />
               <span className="font-sans text-sm">简历</span>
             </label>
-            {form.ai_customize && (
-              <label className="flex items-center gap-2 cursor-pointer ml-5">
-                <input
-                  type="checkbox"
-                  checked={form.ai_cover_letter}
-                  onChange={e => setForm(f => ({
-                    ...f,
-                    ai_cover_letter: nextCoverLetterSelection(f.ai_customize, f.ai_cover_letter, e.target.checked),
-                  }))}
-                  className="w-3.5 h-3.5"
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.ai_cover_letter}
+                onChange={e => setForm(f => ({
+                  ...f,
+                  ai_cover_letter: nextCoverLetterSelection(f.ai_customize, f.ai_cover_letter, e.target.checked),
+                }))}
+                className="w-3.5 h-3.5"
+              />
+              <span className="font-sans text-sm">求职信</span>
+            </label>
+            <p className="font-sans text-xs text-[var(--text-secondary)]">
+              {form.ai_customize && form.ai_cover_letter
+                ? '将同时生成简历和求职信（同一职位与公司）。'
+                : form.ai_cover_letter
+                  ? '只生成求职信，不会定制或改写简历。'
+                  : form.ai_customize
+                    ? '只生成定制简历。'
+                    : '不使用 AI，仅保存职位信息。'}
+            </p>
+            {form.ai_cover_letter && (
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="cover_letter_notes">求职信补充说明（可选）</Label>
+                <Textarea
+                  id="cover_letter_notes"
+                  rows={3}
+                  placeholder="例如：强调可迁移技能、不要提及某段经历…"
+                  value={form.cover_letter_notes}
+                  onChange={e => set('cover_letter_notes')(e.target.value)}
                 />
-                <span className="font-sans text-sm">求职信</span>
-              </label>
+              </div>
             )}
           </div>
         )}
@@ -476,7 +500,11 @@ export default function NewApplication() {
         progress: genProgress.progress,
         applicationId: result.id,
       }) && (() => {
-        const copy = generationSuccessCopy(shouldShowCoverLetterDownload(result.cover_letter_available))
+        const copy = generationSuccessCopy({
+          resumeAvailable: result.resume_available,
+          coverLetterAvailable: result.cover_letter_available,
+          coverLetterError: result.cover_letter_error,
+        })
         return (
           <>
             <div className="border-t border-[var(--border)]" />
@@ -485,14 +513,19 @@ export default function NewApplication() {
                 <h2 className="font-serif text-xl font-bold">{copy.title}</h2>
                 <p className="font-sans text-sm text-[var(--text-secondary)] mt-1">{copy.body}</p>
               </div>
+              {result.cover_letter_warning && (
+                <p className="font-sans text-xs text-[var(--text-primary)]">{result.cover_letter_warning}</p>
+              )}
               {pdfError && (
                 <p className="font-sans text-xs text-[var(--text-primary)]">{pdfError}</p>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => handleDownloadGenerated('resume')} disabled={pdfLoading !== null}>
-                  {pdfLoading === 'resume' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  下载简历
-                </Button>
+                {shouldShowResumeDownload(result.resume_available) && (
+                  <Button onClick={() => handleDownloadGenerated('resume')} disabled={pdfLoading !== null}>
+                    {pdfLoading === 'resume' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    下载简历
+                  </Button>
+                )}
                 {shouldShowCoverLetterDownload(result.cover_letter_available) && (
                   <Button variant="outline" onClick={() => handleDownloadGenerated('coverletter')} disabled={pdfLoading !== null}>
                     {pdfLoading === 'coverletter' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}

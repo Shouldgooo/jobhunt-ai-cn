@@ -1,3 +1,21 @@
+## 2026-10-24 — Deterministic PDF download filenames
+
+- Export Resume / Cover Letter as `SIHUA_TANG_<job_title>_<company>_Resume.pdf` or `…_Cover_Letter.pdf`
+- Share one sanitizer in `shared/pdf-filename.js`; backend `Content-Disposition` is the source of truth
+- Frontend download uses the response filename when present; Editor and New Application share the same helper
+- Do not change PDF bytes, layout, or AI generation
+- Export the shared filename helper as ESM so Vite can load it in the browser (CJS `module.exports` left the app blank)
+
+## 2026-10-24 — Independent cover letter generation
+
+- Add Cover Letter Only and Resume + Cover Letter modes; Resume Only keeps the existing one-call tailor path
+- Generate cover letters from original CV, profile, and JD with a dedicated `{ body }` schema; do not invent experience or contact details
+- Reuse `preserveResumeHeader` so cover-letter preview/PDF always show the real name/contacts
+- Allow Editor regenerate with an overwrite confirm; `cover_md` and `resume_md` stay independent
+- Surface partial failure when resume succeeds and cover letter fails; do not silently clip long letters
+- Tests: backend 219/219, frontend 59/59, `tsc --noEmit` pass
+- Flush pending Editor autosave when switching Resume / Cover Letter tabs so an unsaved draft is not dropped
+
 ## 2026-10-24 — Deterministic resume header
 
 - Restore YAML name/contact from the source CV/template after generation so Gemini cannot drop the first-page header

@@ -20,8 +20,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "allowJs": true
   },
-  "include": ["src"],
+  "include": ["src", "../shared/pdf-filename.js", "../shared/pdf-filename.d.ts"],
   "exclude": ["src/**/*.test.ts"]
 }

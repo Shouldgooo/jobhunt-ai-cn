@@ -62,13 +62,15 @@ Job-Apply-Bot/
 │   ├── generation-abort.js        # Abort Gemini only on real client disconnect (not req close)
 │   ├── change-summary.js          # Local original→generated resume/cover diff (no LLM)
 │   ├── job-qa.js                  # Employer follow-up answers; {answer} schema; original CV/profile first (one LLM call)
-│   ├── coverletter.js             # Cover letter template fill (used after the single LLM call)
+│   ├── coverletter.js             # Independent cover-letter generation + legacy template fill
 │   ├── evaluator.js               # Job fit evaluation
 │   ├── renderer.js                # Oh My CV markdown → HTML
 │   ├── exporter.js                # HTML → PDF via Puppeteer
 │   ├── db.js                      # All SQLite CRUD via node:sqlite
 │   ├── package.json
 │   └── .env                       # GEMINI_API_KEY, GEMINI_MODEL, LLM_PROVIDER
+├── shared/
+│   └── pdf-filename.js            # Deterministic PDF download names (backend + frontend)
 ├── scripts/
 │   └── setup.js                   # First-time setup: copies example files into place
 ├── SPEC.md
@@ -83,23 +85,25 @@ Job-Apply-Bot/
 
 ```
 Stage 1 — POST /api/analyze
-  JD is required. Job title / company / location are optional (local parse + same LLM call).
-    → jd-parser.js extracts metadata locally from a whole-page paste (normalize → labels → header heuristics → scoring; no LLM)
-    → tailor.js `generateApplication` makes ONE LLM call (Gemini or Ollama)
-    → same JSON includes analysis, tailored resume, job metadata, optional cover-letter fills
-    → coverletter.js fills template.md locally from that JSON (no second LLM call)
-    → markdown saved to SQLite
+  JD is required. Job title / company / location are optional (local parse + LLM / manual fields).
+    → Modes: `generate_resume` (default true) and `generate_cover_letter` (default false)
+    → Resume Only: `generateApplication` one LLM call, `cover_letter` null; existing resume behaviour unchanged
+    → Cover Letter Only: `generateCoverLetterDocument` one `{ body }` LLM call; no resume tailoring; `resume_md` stays the original CV/template
+    → Resume + Cover Letter: resume first, then an independent cover-letter call that may read the tailored resume as context only
+    → Cover header is attached from the source CV YAML (`preserveResumeHeader`); the model never chooses identity fields
+    → If resume succeeds and cover fails, the resume is saved and `cover_letter_error` is returned (not reported as full success)
+    → markdown saved to SQLite (`resume_md` and `cover_md` are independent)
     → Accept: application/x-ndjson streams real-stage progress then `{ type: "complete", application }`
     → 取消生成 aborts the fetch; backend watches res.close / req.aborted (not req.close) and cancels axios; skips DB write
-    → returns: fit_score, job_title, company, location, detected_skills, cover_letter_available
+    → returns: fit_score, job_title, company, location, detected_skills, cover_letter_available, resume_available, optional cover_letter_error
 
 Stage 2 — user reviews / edits markdown in browser
 
 Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
   markdown from DB
-    → renderer.js: Oh My CV markdown → HTML (applies theme CSS)
-    → exporter.js: Puppeteer page.setContent() + page.pdf()
-    → PDF streamed to browser
+    → renderer.js: resume themes or cover-letter letter HTML (same header restore as preview)
+    → exporter.js: Puppeteer page.setContent() + page.pdf() (`printBackground: true`)
+    → PDF streamed to browser; long cover letters paginate instead of being clipped
 ```
 
 ---
@@ -108,17 +112,18 @@ Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/analyze` | Stage 1: one LLM call → NDJSON progress (or JSON) → save analysis + resume + optional cover letter |
+| POST | `/api/analyze` | Stage 1: resume and/or cover letter generation → NDJSON progress (or JSON) → save application |
 | GET | `/api/applications` | All application records |
 | POST | `/api/applications` | Create application without AI |
 | GET | `/api/applications/:id` | Single application record |
 | PATCH | `/api/applications/:id` | Update any allowed field |
 | PATCH | `/api/applications/status/all` | One SQL `UPDATE` of `applications.status` only; body `{ status }` must be a valid status; `{ success, updated, status }` |
 | DELETE | `/api/applications/:id` | Delete record |
-| GET | `/api/applications/:id/pdf?type=resume\|coverletter` | On-demand PDF stream |
+| GET | `/api/applications/:id/pdf?type=resume\|coverletter` | On-demand PDF stream; `Content-Disposition` filename is `SIHUA_TANG_<job>_<company>_Resume.pdf` or `…_Cover_Letter.pdf` |
 | POST | `/api/applications/:id/rescore` | Re-score fit against JD via LLM |
 | POST | `/api/applications/:id/evaluate` | Run full job fit evaluation |
 | POST | `/api/applications/:id/ask` | Answer an employer follow-up from original CV/profile/verified notes + JD context; persist `qa_thread` only on success; does not rewrite documents |
+| POST | `/api/applications/:id/cover-letter` | Generate or regenerate cover letter only; body `{ confirm, notes? }`; 409 unless `confirm: true` when `cover_md` already exists; does not rewrite `resume_md` |
 | POST | `/api/preview` | Render markdown → HTML (live preview); resume uses the same header restore as PDF |
 | GET | `/api/profile` | Read `user/profile.md` |
 | PUT | `/api/profile` | Save `user/profile.md` |
@@ -153,7 +158,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). After the model returns, `preserveResumeHeader` replaces any generated YAML with the source CV/template front matter (`name` + header contacts) so the first-page identity block cannot disappear if Gemini omits it. A missing source `name` is a 400 and does not call the LLM. The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). `callLLM` / `buildGeminiRequestBody` accept an optional `responseSchema` override; `/api/analyze` does not pass one and keeps the generation schema. Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + job metadata; cover letter left null when called from `/api/analyze`). After the model returns, `preserveResumeHeader` replaces any generated YAML with the source CV/template front matter (`name` + header contacts) so the first-page identity block cannot disappear if Gemini omits it. A missing source `name` is a 400 and does not call the LLM. The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). `callLLM` / `buildGeminiRequestBody` accept an optional `responseSchema` override; resume generation keeps the application schema; independent cover letters use `{ body }`. Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {
@@ -169,7 +174,7 @@ Assembles the LLM prompt by concatenating:
 }
 ```
 
-`tailorResume` remains for resume-only callers. `POST /api/analyze` uses `generateApplication` only — never a second cover-letter LLM call.
+`tailorResume` remains for resume-only callers. `POST /api/analyze` Resume Only still uses `generateApplication` once. Cover Letter Only / regenerate use `generateCoverLetterDocument` instead. Resume + Cover Letter is two sequential LLM calls sharing the same company/title.
 
 Gemini call-count logs (no API key / CV / JD / PII):
 
@@ -208,7 +213,16 @@ Gemini `generateContent` retry policy:
 
 ### coverletter.js
 
-Fill-in-the-blank only. Placeholders in `user/cover-letter/template.md` are filled from the single `generateApplication` JSON (no second LLM call). `generateCoverLetter()` remains as a legacy helper and is not used by `/api/analyze`.
+Independent cover-letter generation (`generateCoverLetterDocument`):
+
+- Inputs: original CV, optional profile, JD, required company + job title, optional location/notes, optional tailored resume as context only
+- Gemini schema `{ "body": string }` (`additionalProperties: false`); body is Australian English, 250–350 words, no invented experience or hiring-manager name
+- Header is attached with `preserveResumeHeader` from the source CV YAML — the model does not decide name/email/phone
+- Missing JD / CV / name → 400; empty model body → 502; missing company/title → 422
+- Long letters get a page warning; content is never silently clipped
+- `POST /api/applications/:id/cover-letter` regenerates `cover_md` only; existing letters require `confirm: true`
+
+`fillTemplate()` remains for the legacy one-shot `generateApplication` cover object. `generateCoverLetter()` is unused by `/api/analyze`.
 
 Placeholders:
 ```
@@ -245,7 +259,7 @@ Converts Oh My CV markdown to HTML for preview and PDF export.
 
 - `renderResume(markdown, theme, { headerSource })` — reads CSS from `themes/<theme>.css`; applies `markdownWithRequiredHeader` so preview and PDF share one header restore
 - `renderResumeWithCss(markdown, css, theme, { headerSource })` — injects a CSS string directly (live style editor)
-- `renderCoverLetter(markdown)` — simple HTML wrapper for cover letter
+- `renderCoverLetter(markdown, { headerSource })` — letter HTML with the same YAML header restore as the resume; contact line is email | phone | location | LinkedIn when present
 
 Parses YAML front matter for the header block (`-` or `*` list items). If the editor markdown lost YAML, restore from `headerSource` or `user/cv.md` at render time only (do not write back). Missing source `name` is a 400. Contact line is rendered as a single centered row: email (mailto) | phone (plain text) | GitHub (link); `email:` / `mobile:` / `github:` labels and portfolio are omitted from display. Handles `  ~ text` syntax for right-side annotations.
 
@@ -257,6 +271,7 @@ Converts HTML to PDF via Puppeteer (`page.setContent()` + `page.pdf()`).
 
 - `exportResumePDF(markdown, theme)` → Buffer
 - `exportCoverLetterPDF(markdown)` → Buffer
+- Download names come from `shared/pdf-filename.js` (`SIHUA_TANG_<job>_<company>_Resume.pdf` or `…_Cover_Letter.pdf`). Spaces and symbols become a single `_`. Missing job/company use `Role` / `Company`. The PDF bytes are unchanged.
 - If `PUPPETEER_CACHE_DIR` points at an empty cache (e.g. Cursor sandbox), fall back to `~/.cache/puppeteer` when that directory already has Chrome. No Gemini calls.
 
 Both use `printBackground: true`. PDFs are streamed directly to the browser — not saved to disk.
@@ -324,9 +339,9 @@ On first run (table empty), `db.js` imports `user/cv.md` as `"Master Resume"` wi
 **UI language:** Simplified Chinese. API routes, DB field values (`status`, `source`, `theme`), and JSON keys stay in English. Display labels are mapped in `frontend/src/lib/labels.ts`. App chrome uses a Morandi dusty-rose token set in `frontend/src/index.css` (`--bg` `#F7F3F2`, `--surface` `#FFFCFB`, `--primary` `#B48C8A`, `--primary-dark` `#8B6D6C`). Resume PDF themes are unchanged.
 
 **Pages:**
-- `NewApplication` — paste JD, run AI analysis with a real-stage progress panel, informational elapsed wait time, and 取消生成 (AbortController); no automatic time-based abort; Resume Template dropdown auto-selects the default template. Default AI options: 简历 on, 求职信 off. After successful save, stay on the page with 下载简历 (and 下载求职信 if generated) via existing `GET /api/applications/:id/pdf`, plus 查看分析结果 → `/editor/:id`
+- `NewApplication` — paste JD, run AI analysis with a real-stage progress panel, informational elapsed wait time, and 取消生成 (AbortController); no automatic time-based abort; Resume Template dropdown auto-selects the default template. Default AI options: 简历 on, 求职信 off (independent; cover-only is allowed). Optional cover-letter notes. After successful save, stay on the page with 下载简历 and/or 下载求职信 via existing `GET /api/applications/:id/pdf`; resume+cover partial failure shows `cover_letter_error` instead of claiming full success; 查看分析结果 → `/editor/:id`
 - `History` — table of all past applications with inline status editing, always-visible row actions (download/edit/delete), plus 全部标记为已申请 (confirm dialog → one bulk status PATCH, no LLM)
-- `Editor` — split markdown editor + live preview, PDF download; 分析 tab is a compact Chinese summary from persisted `fit_score` + verified `change_summary` / optional evidence matrix (no extra Gemini call); resume/cover tabs still show the verified change banner; 追问 tab uses `POST /api/applications/:id/ask` (optimistic user message rolls back on failure; sync `askingRef` lock)
+- `Editor` — split markdown editor + live preview, PDF download; resume and cover letter keep separate markdown / autosave / export state; cover tab can generate or regenerate via `POST /api/applications/:id/cover-letter` with an overwrite confirm; 分析 tab is a compact Chinese summary from persisted `fit_score` + verified `change_summary` / optional evidence matrix (no extra Gemini call); resume/cover tabs still show the verified change banner; 追问 tab uses `POST /api/applications/:id/ask` (optimistic user message rolls back on failure; sync `askingRef` lock)
 - `Dashboard` — header + 新建申请; five stat cards; 申请状态 / 待跟进; 最近申请 / 本周动态; 52-week heatmap
 - `Style` — live CSS editor with theme switcher
 - `Settings` — tabs for CV, Profile, and Cover Letter Template editors

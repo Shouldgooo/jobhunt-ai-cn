@@ -40,6 +40,8 @@
 | 4s | Job Q&A schema override + evidence rules | `[x]` | Optional `callLLM` schema; Q&A `{answer}`; analyze schema unchanged; optimistic rollback |
 | 4t | Job Q&A no semantic-laundering claims | `[x]` | Prompt: no positive capability without ORIGINAL evidence; mixed items item-by-item; no extra Gemini |
 | 4u | Deterministic resume header | `[x]` | Restore source YAML after Gemini; same restore in renderResume for preview=PDF; fail if `name` missing |
+| 4v | Independent cover letter generation | `[x]` | Mode A resume-only unchanged; Mode B cover-only `{body}` LLM; Mode C resume then cover; regenerate confirm; shared YAML header |
+| 4w | Deterministic PDF download filenames | `[x]` | Shared `SIHUA_TANG_<job>_<company>_Resume/Cover_Letter.pdf`; Content-Disposition; no PDF content change |
 
 ---
 
@@ -131,9 +133,8 @@
 ### job-qa.js
 One later `callLLM` with `QA_RESPONSE_JSON_SCHEMA` `{ answer: string }`. Facts: current `user/cv.md`, `user/profile.md`, persisted `change_summary`, saved company/title. Tailored resume/cover are context only. Question and JD are not evidence. Named items without ORIGINAL support get no positive capability claim (including weaker “knowledge/understanding”). Mixed lists are answered item by item. `qa_thread` written only after `extractAnswer`.
 
-### coverletter.js placeholders
-`{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`
-Prompt loaded from `user/prompts.json` (`coverletter` key).
+### coverletter.js
+Independent `generateCoverLetterDocument`: `{ body }` schema, original CV/profile/JD + required company/title, optional notes and tailored resume as context. Header via `preserveResumeHeader`. Legacy `fillTemplate` placeholders: `{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`.
 
 ### evaluator.js logic
 Reads `prompts/_shared.md` + `user/profile.md` + `prompts/evaluate.md` → single LLM call.
@@ -152,6 +153,7 @@ GET  /api/applications/:id/pdf?type=resume|coverletter → PDF stream
 POST /api/applications/:id/rescore → { fit_score }
 POST /api/applications/:id/evaluate → { eval_score, eval_recommendation, eval_archetype, eval_review }
 POST /api/applications/:id/ask → { answer, qa_thread }  (follow-up Q&A; does not rewrite documents)
+POST /api/applications/:id/cover-letter → { cover_md, resume_md, resume_unchanged }  (confirm required if cover exists)
 POST /api/preview        → { html }
 GET/PUT /api/profile     — user/profile.md
 GET/PUT /api/cv          — user/cv.md

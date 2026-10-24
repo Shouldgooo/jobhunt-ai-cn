@@ -6,9 +6,9 @@
  */
 const inFlight = new Set();
 
-function generationKey({ jd, resume_template_id, generate_cover_letter }) {
+function generationKey({ jd, resume_template_id, generate_cover_letter, generate_resume }) {
   const jdNorm = String(jd || '').trim();
-  return `${resume_template_id || 0}::${generate_cover_letter ? 1 : 0}::${jdNorm}`;
+  return `${resume_template_id || 0}::${generate_resume === false ? 0 : 1}::${generate_cover_letter ? 1 : 0}::${jdNorm}`;
 }
 
 function tryStartGeneration(key) {

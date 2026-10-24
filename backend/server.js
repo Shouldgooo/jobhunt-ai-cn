@@ -57,7 +57,7 @@ api.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // ─── Analyze — Stage 1 ────────────────────────────────────────────────────────
 
 api.post('/analyze', async (req, res) => {
-  const { jd, resume_template_id, generate_cover_letter } = req.body;
+  const { jd, resume_template_id, generate_cover_letter, generate_resume } = req.body;
   const stream = /ndjson/i.test(req.headers.accept || '') || req.query.stream === '1';
 
   if (!jd || !String(jd).trim()) {
@@ -83,11 +83,13 @@ api.post('/analyze', async (req, res) => {
     if (defaultTpl) resolvedTemplateId = defaultTpl.id;
   }
 
-  const doCoverLetter = generate_cover_letter !== false;
+  const doCoverLetter = generate_cover_letter === true;
+  const doResume = generate_resume !== false;
   const lockKey = generationKey({
     jd,
     resume_template_id: resolvedTemplateId,
     generate_cover_letter: doCoverLetter,
+    generate_resume: doResume,
   });
   if (!tryStartGeneration(lockKey)) {
     return res.status(409).json({ error: '生成正在进行中，请勿重复提交。' });
@@ -177,7 +179,7 @@ api.get('/applications/:id/pdf', async (req, res) => {
   if (!markdown) {
     return res.status(404).json({
       error: type === 'coverletter'
-        ? 'No cover letter saved — generate one from New Application'
+        ? '尚未保存求职信 — 请先生成或在编辑器中重新生成'
         : 'Resume markdown not saved — try re-generating from New Application',
     });
   }
@@ -185,14 +187,18 @@ api.get('/applications/:id/pdf', async (req, res) => {
   try {
     const { exportResumePDF, exportCoverLetterPDF } = require('./exporter');
     const buffer = type === 'coverletter'
-      ? await exportCoverLetterPDF(markdown)
+      ? await exportCoverLetterPDF(markdown, { headerSource: record.resume_md || undefined })
       : await exportResumePDF(markdown, record.theme || 'classic');
 
-    const slug     = `${record.company}_${record.job_title}`.replace(/[^a-zA-Z0-9]/g, '-');
-    const filename = `${slug}_${type}.pdf`;
+    const { pdfExportFilename, contentDisposition } = require('../shared/pdf-filename');
+    const filename = pdfExportFilename({
+      jobTitle: record.job_title,
+      company: record.company,
+      type,
+    });
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', contentDisposition(filename));
     res.send(buffer);
   } catch (err) {
     console.error('[/api/pdf error]', err);
@@ -300,6 +306,62 @@ api.post('/applications/:id/ask', async (req, res) => {
   }
 });
 
+// ─── Cover letter generate / regenerate (does not rewrite resume) ──────────────
+
+api.post('/applications/:id/cover-letter', async (req, res) => {
+  const record = getApplicationById(Number(req.params.id));
+  if (!record) return res.status(404).json({ error: 'Not found' });
+
+  const {
+    COVER_LETTER_CONFIRM_REQUIRED,
+    generateCoverLetterDocument,
+    requiresCoverOverwriteConfirm,
+    formatLlmError,
+  } = require('./coverletter');
+
+  if (!record.jd_text || !String(record.jd_text).trim()) {
+    return res.status(400).json({ error: '该申请没有职位描述，无法生成求职信。' });
+  }
+  if (requiresCoverOverwriteConfirm(record.cover_md, req.body?.confirm)) {
+    return res.status(409).json({
+      error: COVER_LETTER_CONFIRM_REQUIRED,
+      code: 'COVER_LETTER_CONFIRM_REQUIRED',
+    });
+  }
+
+  const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  if (provider !== 'ollama' && !process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: 'Gemini API key not configured — set GEMINI_API_KEY in backend/.env' });
+  }
+
+  try {
+    const result = await generateCoverLetterDocument({
+      jd: record.jd_text,
+      company: record.company,
+      jobTitle: record.job_title,
+      location: record.location,
+      notes: req.body?.notes,
+      cvMd: undefined,
+      tailoredResumeMd: record.resume_md || '',
+    });
+    const previousResume = record.resume_md;
+    updateApplication(record.id, { cover_md: result.markdown });
+    const saved = getApplicationById(record.id);
+    res.json({
+      cover_md: saved.cover_md,
+      resume_md: saved.resume_md,
+      resume_unchanged: saved.resume_md === previousResume,
+      cover_letter_available: true,
+      cover_letter_warning: result.pageWarning || undefined,
+    });
+  } catch (err) {
+    const formatted = formatLlmError(err);
+    const status = Number(formatted.statusCode) >= 400 ? formatted.statusCode : (err.statusCode || 500);
+    console.error('[/api/applications/:id/cover-letter error]', formatted.message);
+    res.status(status).json({ error: formatted.message });
+  }
+});
+
 // ─── Preview ───────────────────────────────────────────────────────────────────
 
 api.post('/preview', (req, res) => {
@@ -310,7 +372,7 @@ api.post('/preview', (req, res) => {
   try {
     const { renderResume, renderCoverLetter } = require('./renderer');
     const html = type === 'coverletter'
-      ? renderCoverLetter(markdown)
+      ? renderCoverLetter(markdown, { headerSource: req.body.headerSource })
       : renderResume(markdown, theme || null);
     res.json({ html });
   } catch (err) {

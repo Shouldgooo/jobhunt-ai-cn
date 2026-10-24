@@ -82,15 +82,17 @@ async function exportResumePDF(markdown, theme, { headerSource } = {}) {
 
 /**
  * Render a cover letter markdown string to a PDF Buffer.
+ * Uses the same header restore as live preview.
  * @param {string} markdown
+ * @param {{ headerSource?: string|false|null }} [options]
  * @returns {Promise<Buffer>}
  */
-async function exportCoverLetterPDF(markdown) {
-  const html = renderCoverLetter(markdown);
+async function exportCoverLetterPDF(markdown, { headerSource } = {}) {
+  const html = renderCoverLetter(markdown, { headerSource });
   return _renderPDF(html, {
     format: 'A4',
-    printBackground: false,
-    margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+    printBackground: true,
+    margin: { top: '18mm', right: '18mm', bottom: '18mm', left: '18mm' },
   });
 }
 
