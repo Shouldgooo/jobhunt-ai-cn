@@ -11,7 +11,6 @@ process.env.TEST_DB_PATH = TEST_DB;
 
 const {
   buildChangeSummary,
-  buildChangeSummarySafe,
   validateWorkExperience,
   EXPERIENCE_WARNING,
   EMPTY_MSG,

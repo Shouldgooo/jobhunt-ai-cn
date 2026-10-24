@@ -1,3 +1,24 @@
+## 2026-10-25 — Cover letter Level D and analytics wording
+
+- Treat Level D as a foundation for learning, not present ability; forbid packaging unsupported JD tasks as current capability (`translates directly to diagnosing…`, `equipped me to manage…`)
+- Keep database/engineering evidence from becoming business analytics unless the CV has real analysis work
+- Discourage near-template openings such as `I am writing to express my interest` while still allowing natural first-line variation
+- Extend mock evidence tests for Windows/M365 transfer, database-vs-analytics, real analytics still allowed, and opening-style contract
+
+## 2026-10-24 — Cover letter evidence accuracy
+
+- Classify each cover-letter claim internally as Level A–E (professional, project, listed skill, transferable, unsupported) in the existing one-call prompt
+- Forbid rewriting JD duties as lived experience and forbid upgrading CV wording (assisted MySQL, AWS exposure, Skills-only C#)
+- Allow letters shorter than 250 words when evidence is thin; do not pad with empty analytical claims
+- Add mock tests for IT tickets, Power BI gaps, MySQL/C#/AWS proficiency, and real commercial development still being usable
+
+## 2026-10-24 — Cover letter quality (prompt only)
+
+- Strengthen `buildCoverLetterPrompt` so one existing LLM call analyses the JD, matches `JD Requirement → CV Evidence → Cover Letter Content`, and writes a four-paragraph Australian English letter
+- Ban default AI clichés, invented metrics/company praise, and Markdown section headings; keep 250–350 words without padding or clipping
+- Add mock-LLM quality tests for IT Support, Junior Software Developer, and Data Analyst; do not change resume prompts or add a second model call
+- Fix three existing lint issues: useless escape in `tailor.js`, unused `formatLlmError` import in `server.js`, unused `buildChangeSummarySafe` import in change-summary tests
+
 ## 2026-10-24 — Deterministic PDF download filenames
 
 - Export Resume / Cover Letter as `SIHUA_TANG_<job_title>_<company>_Resume.pdf` or `…_Cover_Letter.pdf`

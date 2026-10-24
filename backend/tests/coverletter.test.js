@@ -144,8 +144,10 @@ test('cover letter prompt is evidence-safe and uses the provided company/title',
   assert.match(prompt, /Northwind Analytics/);
   assert.match(prompt, /Support Engineer/);
   assert.match(prompt, /ORIGINAL CV is the source of facts/);
+  assert.match(prompt, /JD Requirement → CV Evidence → Cover Letter Content/);
   assert.match(prompt, /Tailored resume is CONTEXT only/);
   assert.match(prompt, /Do not invent a hiring-manager name/);
+  assert.match(prompt, /Do not emit Markdown headings/);
   assert.match(prompt, /Keep it concise/);
   assert.doesNotMatch(prompt, /tailored_resume_md/);
 });

@@ -446,7 +446,7 @@ function looksLikeTruncatedJson(text, finishReason) {
     else if (ch === '}') depth -= 1;
   }
   if (inString || escape || depth !== 0) return true;
-  return /[:,\[{]$/.test(s);
+  return /[:,[{]$/.test(s);
 }
 
 function extractJsonCandidate(text) {

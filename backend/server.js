@@ -276,7 +276,7 @@ api.post('/applications/:id/ask', async (req, res) => {
   }
 
   try {
-    const { answerJobQuestion, formatLlmError } = require('./job-qa');
+    const { answerJobQuestion } = require('./job-qa');
     const result = await answerJobQuestion({
       company: record.company,
       jobTitle: record.job_title,

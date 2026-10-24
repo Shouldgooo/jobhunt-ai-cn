@@ -42,6 +42,9 @@
 | 4u | Deterministic resume header | `[x]` | Restore source YAML after Gemini; same restore in renderResume for preview=PDF; fail if `name` missing |
 | 4v | Independent cover letter generation | `[x]` | Mode A resume-only unchanged; Mode B cover-only `{body}` LLM; Mode C resume then cover; regenerate confirm; shared YAML header |
 | 4w | Deterministic PDF download filenames | `[x]` | Shared `SIHUA_TANG_<job>_<company>_Resume/Cover_Letter.pdf`; Content-Disposition; no PDF content change |
+| 4x | Cover letter quality (prompt only) | `[x]` | Stronger JD analysis + CV evidence matching in `buildCoverLetterPrompt`; no extra LLM; mock tests for IT Support / Junior Dev / Data Analyst |
+| 4y | Cover letter evidence accuracy | `[x]` | Prompt Levels A–E; forbid JD-as-experience and proficiency upgrades; mock tests for tickets / Power BI / MySQL / C# / AWS; no extra LLM |
+| 4z | Cover letter Level D / analytics wording | `[x]` | Ban capability-laundering (`translates directly to…`); database ≠ analytics; discourage near-template openings; no extra LLM |
 
 ---
 
@@ -134,7 +137,7 @@
 One later `callLLM` with `QA_RESPONSE_JSON_SCHEMA` `{ answer: string }`. Facts: current `user/cv.md`, `user/profile.md`, persisted `change_summary`, saved company/title. Tailored resume/cover are context only. Question and JD are not evidence. Named items without ORIGINAL support get no positive capability claim (including weaker “knowledge/understanding”). Mixed lists are answered item by item. `qa_thread` written only after `extractAnswer`.
 
 ### coverletter.js
-Independent `generateCoverLetterDocument`: `{ body }` schema, original CV/profile/JD + required company/title, optional notes and tailored resume as context. Header via `preserveResumeHeader`. Legacy `fillTemplate` placeholders: `{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`.
+Independent `generateCoverLetterDocument`: `{ body }` schema, original CV/profile/JD + required company/title, optional notes and tailored resume as context. Prompt: internal JD analysis + evidence levels A–E + Level D is foundation-for-learning only + database work is not automatically analytics; four paragraphs; 250–350 words when evidence is rich; no extra LLM. Header via `preserveResumeHeader`. Legacy `fillTemplate` placeholders: `{{company}}` `{{job_title}}` `{{why_company}}` `{{matching_skills}}` `{{specific_project}}` `{{why_company_culture}}`.
 
 ### evaluator.js logic
 Reads `prompts/_shared.md` + `user/profile.md` + `prompts/evaluate.md` → single LLM call.

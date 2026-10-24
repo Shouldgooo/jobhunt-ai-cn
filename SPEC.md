@@ -216,7 +216,11 @@ Gemini `generateContent` retry policy:
 Independent cover-letter generation (`generateCoverLetterDocument`):
 
 - Inputs: original CV, optional profile, JD, required company + job title, optional location/notes, optional tailored resume as context only
-- Gemini schema `{ "body": string }` (`additionalProperties: false`); body is Australian English, 250–350 words, no invented experience or hiring-manager name
+- Gemini schema `{ "body": string }` (`additionalProperties: false`); one LLM call; no extra matching call
+- Prompt asks the model to analyse the JD internally (duties, 3–5 priority skills, essential vs desirable, special requirements) then write through `JD Requirement → CV Evidence → Cover Letter Content`
+- Internal evidence levels A–E (professional / project / listed skill / transferable / unsupported); JD duties are not candidate history; do not upgrade proficiency
+- Level D is a foundation for learning, not present ability (`translates directly to diagnosing…` is forbidden when the CV lacks that task); database work is not automatically analytics; prefer a direct opening without a fixed first line
+- Body is Australian English, four paragraphs without Markdown headings, 250–350 words when evidence is rich; shorter is preferred over padding; do not invent metrics or praise a company beyond what the JD states
 - Header is attached with `preserveResumeHeader` from the source CV YAML — the model does not decide name/email/phone
 - Missing JD / CV / name → 400; empty model body → 502; missing company/title → 422
 - Long letters get a page warning; content is never silently clipped
