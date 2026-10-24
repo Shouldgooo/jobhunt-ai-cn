@@ -22,6 +22,7 @@ const {
   GEMINI_GENERATION_CONFIG,
   GENERATION_RESPONSE_JSON_SCHEMA,
 } = require('../tailor');
+const { parseFrontMatter, HEADER_REQUIRED_ERROR } = require('../renderer');
 const { getApplicationById, insertApplication } = require('../db');
 const { createGenerationLock, generationKey, tryStartGeneration, finishGeneration } = require('../generation-lock');
 
@@ -367,6 +368,65 @@ test('createGeminiCallTracker starts at zero', () => {
   const tracker = createGeminiCallTracker();
   assert.equal(tracker.logicalCalls, 0);
   assert.equal(tracker.httpAttempts, 0);
+});
+
+test('AI output without YAML still keeps the source resume header', async () => {
+  const result = await generateApplication({
+    jd: 'TypeScript support role at Northwind Analytics in Melbourne.',
+    baseMd: FICTIONAL_CV,
+    generateCoverLetter: false,
+    hints: {},
+  }, {
+    callLLM: async () => ({
+      ...okPayload({ cover: false }),
+      tailored_resume_md: '## Summary\nTailored engineer.\n\n## Skills\nTypeScript',
+    }),
+  });
+  const { name, headerItems, body } = parseFrontMatter(result.markdown);
+  assert.equal(name, 'Jordan Avery');
+  assert.ok(headerItems.length >= 1);
+  assert.match(body, /## Summary/);
+  assert.match(result.markdown, /^---/);
+  assert.equal(result.tracker.logicalCalls, 1);
+});
+
+test('twenty mocked generations keep the header even when the model drops it', async () => {
+  for (let i = 0; i < 20; i += 1) {
+    const dropHeader = i % 2 === 0;
+    const result = await generateApplication({
+      jd: 'TypeScript support role at Northwind Analytics.',
+      baseMd: FICTIONAL_CV,
+      generateCoverLetter: false,
+    }, {
+      callLLM: async () => ({
+        ...okPayload({ cover: false }),
+        tailored_resume_md: dropHeader
+          ? `## Summary\nPass ${i}\n`
+          : FICTIONAL_CV.replace('Full-stack engineer.', `Pass ${i}`),
+      }),
+    });
+    const { name } = parseFrontMatter(result.markdown);
+    assert.equal(name, 'Jordan Avery');
+    assert.match(result.markdown, /Pass \d+/);
+  }
+});
+
+test('missing source name is rejected before calling the LLM', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => generateApplication({
+      jd: 'A role.',
+      baseMd: '## Summary\nNo identity fields.\n',
+      generateCoverLetter: false,
+    }, {
+      callLLM: async () => {
+        calls += 1;
+        return okPayload({ cover: false });
+      },
+    }),
+    (err) => err.message === HEADER_REQUIRED_ERROR && err.statusCode === 400
+  );
+  assert.equal(calls, 0);
 });
 
 test('JSON extraction and schema checks add zero Gemini calls', () => {

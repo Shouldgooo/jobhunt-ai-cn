@@ -119,7 +119,7 @@ Stage 3 — GET /api/applications/:id/pdf?type=resume|coverletter
 | POST | `/api/applications/:id/rescore` | Re-score fit against JD via LLM |
 | POST | `/api/applications/:id/evaluate` | Run full job fit evaluation |
 | POST | `/api/applications/:id/ask` | Answer an employer follow-up from original CV/profile/verified notes + JD context; persist `qa_thread` only on success; does not rewrite documents |
-| POST | `/api/preview` | Render markdown → HTML (live preview) |
+| POST | `/api/preview` | Render markdown → HTML (live preview); resume uses the same header restore as PDF |
 | GET | `/api/profile` | Read `user/profile.md` |
 | PUT | `/api/profile` | Save `user/profile.md` |
 | GET | `/api/cv` | Read `user/cv.md` |
@@ -153,7 +153,7 @@ Assembles the LLM prompt by concatenating:
 3. `user/cv.md` (or a DB template if one is selected)
 4. The JD text
 
-`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). `callLLM` / `buildGeminiRequestBody` accept an optional `responseSchema` override; `/api/analyze` does not pass one and keeps the generation schema. Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
+`generateApplication` sends a single LLM call in JSON mode (resume + optional cover letter + job metadata). After the model returns, `preserveResumeHeader` replaces any generated YAML with the source CV/template front matter (`name` + header contacts) so the first-page identity block cannot disappear if Gemini omits it. A missing source `name` is a 400 and does not call the LLM. The prompt uses `cleanJobDescriptionForAI(rawJd)` while SQLite stores the original paste. Gemini `generationConfig` includes `thinkingConfig.thinkingLevel: "low"` and structured output via REST `responseFormat.text` (`mimeType: "APPLICATION_JSON"` plus a JSON Schema for the generation result). `callLLM` / `buildGeminiRequestBody` accept an optional `responseSchema` override; `/api/analyze` does not pass one and keeps the generation schema. Deprecated `response_mime_type` / `response_schema` are not sent. JSON is still read from non-thought candidate parts; fenced/BOM/wrapped JSON is unwrapped locally. Truncated or schema-invalid payloads fail without insert and without a second LLM call. JSON.parse failures also log a redacted SyntaxError message, position, and candidate length — never the full candidate. There is no application-level wall-clock deadline; only the user 取消生成 AbortSignal aborts axios. 429/503 retries are unchanged. Returns:
 
 ```json
 {
@@ -243,11 +243,11 @@ Returns and saves to DB:
 
 Converts Oh My CV markdown to HTML for preview and PDF export.
 
-- `renderResume(markdown, theme)` — reads CSS from `themes/<theme>.css`
-- `renderResumeWithCss(markdown, css, theme)` — injects a CSS string directly (live style editor)
+- `renderResume(markdown, theme, { headerSource })` — reads CSS from `themes/<theme>.css`; applies `markdownWithRequiredHeader` so preview and PDF share one header restore
+- `renderResumeWithCss(markdown, css, theme, { headerSource })` — injects a CSS string directly (live style editor)
 - `renderCoverLetter(markdown)` — simple HTML wrapper for cover letter
 
-Parses YAML front matter for the header block (`-` or `*` list items). Contact line is rendered as a single centered row: email (mailto) | phone (plain text) | GitHub (link); `email:` / `mobile:` / `github:` labels and portfolio are omitted from display. Handles `  ~ text` syntax for right-side annotations.
+Parses YAML front matter for the header block (`-` or `*` list items). If the editor markdown lost YAML, restore from `headerSource` or `user/cv.md` at render time only (do not write back). Missing source `name` is a 400. Contact line is rendered as a single centered row: email (mailto) | phone (plain text) | GitHub (link); `email:` / `mobile:` / `github:` labels and portfolio are omitted from display. Handles `  ~ text` syntax for right-side annotations.
 
 ---
 
@@ -389,5 +389,5 @@ GitHub Actions (`.github/workflows/deploy-demo.yml`) auto-deploys to GitHub Page
 1. `page.pdf()` requires `printBackground: true` to render coloured elements
 2. `node:sqlite` does not support WAL mode toggle via pragma in all versions — keep default journal mode
 3. `user.config.js` is not cached (`delete require.cache[...]`) so live theme changes take effect without restart
-4. `tailor.js` uses `baseMd` if provided (from DB template); falls back to `user/cv.md` otherwise
+4. `tailor.js` uses `baseMd` if provided (from DB template); falls back to `user/cv.md` otherwise. Generated `tailored_resume_md` YAML is discarded; the source front matter is reattached before save/PDF.
 5. Named params in `node:sqlite` use `:name` syntax; `run()` takes a plain object (no `:` prefix on keys)

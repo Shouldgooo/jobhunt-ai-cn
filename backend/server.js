@@ -196,7 +196,8 @@ api.get('/applications/:id/pdf', async (req, res) => {
     res.send(buffer);
   } catch (err) {
     console.error('[/api/pdf error]', err);
-    res.status(500).json({ error: err.message });
+    const status = Number(err.statusCode) >= 400 ? err.statusCode : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -313,7 +314,8 @@ api.post('/preview', (req, res) => {
       : renderResume(markdown, theme || null);
     res.json({ html });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = Number(err.statusCode) >= 400 ? err.statusCode : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 
@@ -452,7 +454,8 @@ api.post('/style/preview', (req, res) => {
       : fs.readFileSync(CV_MD_PATH, 'utf8');
     res.json({ html: renderResumeWithCss(markdown, css, theme || undefined) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = Number(err.statusCode) >= 400 ? err.statusCode : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

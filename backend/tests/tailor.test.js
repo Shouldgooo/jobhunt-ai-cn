@@ -509,7 +509,7 @@ test('tailorResume uses baseMd when provided (no Gemini call made for validation
   let promptSeen = '';
   const result = await generateApplication({
     jd: 'test jd',
-    baseMd: '# My CV\n\nSome content',
+    baseMd: '---\nname: Jordan Avery\n---\n# My CV\n\nSome content',
     generateCoverLetter: false,
   }, {
     callLLM: async (prompt) => {

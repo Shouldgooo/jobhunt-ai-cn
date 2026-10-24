@@ -1,3 +1,11 @@
+## 2026-10-24 — Deterministic resume header
+
+- Restore YAML name/contact from the source CV/template after generation so Gemini cannot drop the first-page header
+- Reject generate/PDF when the source resume has no `name`; optional contact fields may be empty
+- Apply the same `markdownWithRequiredHeader` restore in `renderResume` so Editor preview matches PDF without rewriting editor markdown
+- Do not replace remaining YAML (user-edited contacts) when only `name` is missing — return an explicit error instead
+- Keep existing ATS markdown + theme CSS; do not invent personal details
+
 ## 2026-10-02 — Job Q&A: no weaker claims for unsupported tools
 
 - Tighten `buildQaPrompt`: a named tool/technology without ORIGINAL evidence cannot take any positive capability claim (used, proficient, familiar, knowledge, understanding, exposure, comfort)

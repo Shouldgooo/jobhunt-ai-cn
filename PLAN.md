@@ -39,6 +39,7 @@
 | 4r | Gemini responseFormat structured output | `[x]` | REST `responseFormat.text` JSON Schema; keep parse/normalize/evidence; no extra Gemini |
 | 4s | Job Q&A schema override + evidence rules | `[x]` | Optional `callLLM` schema; Q&A `{answer}`; analyze schema unchanged; optimistic rollback |
 | 4t | Job Q&A no semantic-laundering claims | `[x]` | Prompt: no positive capability without ORIGINAL evidence; mixed items item-by-item; no extra Gemini |
+| 4u | Deterministic resume header | `[x]` | Restore source YAML after Gemini; same restore in renderResume for preview=PDF; fail if `name` missing |
 
 ---
 
@@ -172,13 +173,15 @@ Status values: `not_started` | `applied` | `followed_up` | `interviewed` | `reje
 Empty table on startup → import `user/cv.md` as "Master Resume" (`is_default = 1`). Never overwrites existing rows. Missing `user/cv.md` logs a warning and continues.
 
 ### renderer.js
-- `renderResume(markdown, theme)` — parses `~` syntax + YAML front matter → full HTML; contact line is centered `email | phone | github` (no labels, no portfolio)
-- `renderResumeWithCss(markdown, css, theme)` — injects CSS string directly (live style editor)
+- `renderResume(markdown, theme, { headerSource })` — YAML header via `markdownWithRequiredHeader` (same path as PDF); contact line is centered `email | phone | github` (no labels, no portfolio)
+- `preserveResumeHeader(generated, source)` — always reattach the source YAML name/header; never trust the model for identity
+- `assertResumeHeader` — requires a non-empty `name`; optional contact items may be missing
+- `renderResumeWithCss(markdown, css, theme, { headerSource })` — injects CSS string directly (live style editor); same header restore
 - `renderCoverLetter(markdown)` — simple HTML wrapper
 - Two-column themes detected via `TWO_COLUMN_THEMES` set; emits `.resume-left` / `.resume-right`
 
 ### exporter.js
-- `exportResumePDF(markdown, theme)` → Buffer
+- `exportResumePDF(markdown, theme, { headerSource })` → Buffer; restores header from `headerSource` or `user/cv.md` if the saved markdown lost YAML
 - `exportCoverLetterPDF(markdown)` → Buffer
 - Both use `page.setContent()` + `page.pdf({ printBackground: true })`
 - Empty `PUPPETEER_CACHE_DIR` (Cursor sandbox) falls back to `~/.cache/puppeteer`

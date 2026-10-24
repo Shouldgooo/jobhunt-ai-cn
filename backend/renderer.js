@@ -17,6 +17,7 @@ const path = require('path');
 
 const THEMES_DIR      = path.resolve(__dirname, '../themes');
 const USER_CONFIG_PATH = path.resolve(__dirname, '../user.config.js');
+const USER_CV_MD      = path.resolve(__dirname, '../user/cv.md');
 
 /** Slugs that belong in the left column for two-column themes. */
 const LEFT_SECTION_SLUGS = new Set([
@@ -42,8 +43,8 @@ function loadThemeCss(theme) {
  * @param {string} [theme] - theme name override (e.g. 'modern')
  * @returns {string}
  */
-function renderResume(markdown, theme) {
-  return renderResumeWithCss(markdown, loadThemeCss(theme), theme);
+function renderResume(markdown, theme, options) {
+  return renderResumeWithCss(markdown, loadThemeCss(theme), theme, options);
 }
 
 /**
@@ -53,8 +54,9 @@ function renderResume(markdown, theme) {
  * @param {string} [theme] - optional theme name, used to select layout mode
  * @returns {string}
  */
-function renderResumeWithCss(markdown, css, theme) {
-  const { name, headerItems, body } = parseFrontMatter(markdown);
+function renderResumeWithCss(markdown, css, theme, { headerSource } = {}) {
+  const prepared = markdownWithRequiredHeader(markdown, headerSource);
+  const { name, headerItems, body } = parseFrontMatter(prepared);
   const bodyHtml = renderBody(body, theme);
   return buildHTML(name, headerItems, bodyHtml, css);
 }
@@ -92,9 +94,20 @@ ${bodyHtml}
 
 // ─── Front matter parser ───────────────────────────────────────────────────────
 
+const FRONT_MATTER_RE = /^---\r?\n([\s\S]+?)\r?\n---(?:\r?\n|$)([\s\S]*)$/;
+const HEADER_REQUIRED_ERROR = '简历缺少姓名，无法生成个人信息页眉。请在原始简历或模板的 YAML front matter 中填写 name。';
+
+function unwrapResumeMarkdown(markdown) {
+  let s = String(markdown || '').replace(/^\uFEFF/, '').trim();
+  const fenced = s.match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) s = fenced[1].trim();
+  return s;
+}
+
 function parseFrontMatter(markdown) {
-  const match = markdown.match(/^---\n([\s\S]+?)\n---\n?([\s\S]*)$/);
-  if (!match) return { name: '', headerItems: [], body: markdown };
+  const text = unwrapResumeMarkdown(markdown);
+  const match = text.match(FRONT_MATTER_RE);
+  if (!match) return { name: '', headerItems: [], body: text };
 
   const fm   = match[1];
   const body = match[2].trim();
@@ -103,13 +116,71 @@ function parseFrontMatter(markdown) {
   const name = nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, '') : '';
 
   const headerItems = [];
-  const itemRe = /[-*] text:\s*"([^"]+)"[ \t]*(?:\n[ \t]+link:\s*(\S+))?/g;
+  const itemRe = /[-*] text:\s*"([^"]+)"[ \t]*(?:\r?\n[ \t]+link:\s*(\S+))?/g;
   let m;
   while ((m = itemRe.exec(fm)) !== null) {
     headerItems.push({ text: m[1].trim(), link: m[2] ? m[2].trim() : null });
   }
 
   return { name, headerItems, body };
+}
+
+function extractFrontMatterBlock(markdown) {
+  const text = unwrapResumeMarkdown(markdown);
+  const match = text.match(FRONT_MATTER_RE);
+  if (!match) return '';
+  return `---\n${match[1]}\n---`;
+}
+
+function hasResumeHeader(markdown) {
+  return Boolean(parseFrontMatter(markdown).name);
+}
+
+function assertResumeHeader(markdown) {
+  if (hasResumeHeader(markdown)) return parseFrontMatter(markdown);
+  const err = new Error(HEADER_REQUIRED_ERROR);
+  err.statusCode = 400;
+  err.code = 'RESUME_HEADER_REQUIRED';
+  throw err;
+}
+
+/** Always use the source CV/template YAML header; never trust the model for identity. */
+function preserveResumeHeader(generatedMd, sourceMd) {
+  const sourceBlock = extractFrontMatterBlock(sourceMd);
+  if (!sourceBlock || !hasResumeHeader(sourceBlock)) {
+    const err = new Error(HEADER_REQUIRED_ERROR);
+    err.statusCode = 400;
+    err.code = 'RESUME_HEADER_REQUIRED';
+    throw err;
+  }
+  const body = parseFrontMatter(generatedMd).body;
+  return `${sourceBlock}\n\n${body}`;
+}
+
+function resolveHeaderSource(headerSource) {
+  if (headerSource === false || headerSource === null) return '';
+  if (typeof headerSource === 'string' && headerSource.trim()) return headerSource;
+  try {
+    return fs.readFileSync(USER_CV_MD, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** Shared by live preview and PDF. Does not write back to the editor markdown. */
+function markdownWithRequiredHeader(markdown, headerSource) {
+  if (hasResumeHeader(markdown)) return markdown;
+  // YAML is still present (e.g. user deleted only `name`) — do not replace their contacts.
+  if (extractFrontMatterBlock(markdown)) {
+    const err = new Error(HEADER_REQUIRED_ERROR);
+    err.statusCode = 400;
+    err.code = 'RESUME_HEADER_REQUIRED';
+    throw err;
+  }
+  const source = resolveHeaderSource(headerSource);
+  const restored = preserveResumeHeader(markdown, source);
+  assertResumeHeader(restored);
+  return restored;
 }
 
 // ─── Body renderer ─────────────────────────────────────────────────────────────
@@ -283,4 +354,18 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-module.exports = { renderResume, renderResumeWithCss, renderCoverLetter, renderBlock, inlineMd, parseFrontMatter, loadThemeCss };
+module.exports = {
+  renderResume,
+  renderResumeWithCss,
+  renderCoverLetter,
+  renderBlock,
+  inlineMd,
+  parseFrontMatter,
+  loadThemeCss,
+  extractFrontMatterBlock,
+  hasResumeHeader,
+  assertResumeHeader,
+  preserveResumeHeader,
+  markdownWithRequiredHeader,
+  HEADER_REQUIRED_ERROR,
+};

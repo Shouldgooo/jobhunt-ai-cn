@@ -19,6 +19,7 @@ const GEMINI_RETRY_DELAYS_MS = [2000, 4000, 8000];
 const MAX_QUOTA_AUTORETRY = 1;
 const MAX_QUOTA_WAIT_MS = 60_000;
 const { CLIENT_DISCONNECTED, abortReasonText } = require('./generation-abort');
+const { assertResumeHeader, preserveResumeHeader } = require('./renderer');
 const USER_CANCELLED = 'USER_CANCELLED';
 const GEMINI_THINKING_LEVEL = 'low';
 
@@ -774,6 +775,7 @@ async function runGenerateApplication({
     if (!fs.existsSync(CV_MD)) throw new Error('Missing user CV: `user/cv.md` not found.');
     return fs.readFileSync(CV_MD, 'utf8');
   })();
+  assertResumeHeader(cvMd);
 
   if (!fs.existsSync(TAILOR_MD)) throw new Error('Missing prompt template: `prompts/tailor.md` not found.');
   const profileMd = fs.existsSync(PROFILE_MD) ? fs.readFileSync(PROFILE_MD, 'utf8') : '';
@@ -828,6 +830,8 @@ async function runGenerateApplication({
   throwIfAborted(signal);
   onProgress?.({ type: 'progress', stage: 'received', progress: 85, message: '正在处理 AI 返回结果…' });
   const result = normalizeGenerationResult(raw, { wantCoverLetter: coverAvailable });
+  result.markdown = preserveResumeHeader(result.markdown, cvMd);
+  assertResumeHeader(result.markdown);
   onProgress?.({ type: 'progress', stage: 'validating_result', progress: 90, message: '正在校验生成结果…' });
   logGenerationDone(tracker);
 
@@ -864,6 +868,7 @@ async function tailorResume({ jd, baseMd: externalBaseMd }) {
     if (!fs.existsSync(CV_MD)) throw new Error('Missing user CV: `user/cv.md` not found.');
     return fs.readFileSync(CV_MD, 'utf8');
   })();
+  assertResumeHeader(cvMd);
 
   if (!fs.existsSync(TAILOR_MD)) throw new Error('Missing prompt template: `prompts/tailor.md` not found.');
   const profileMd = fs.existsSync(PROFILE_MD) ? fs.readFileSync(PROFILE_MD, 'utf8') : '';
@@ -879,8 +884,11 @@ async function tailorResume({ jd, baseMd: externalBaseMd }) {
   if (typeof result.fit_score !== 'number')           throw new Error('Gemini returned invalid response: expected number for `fit_score`');
   if (!Array.isArray(result.detected_skills))         throw new Error('Gemini returned invalid response: expected array for `detected_skills`');
 
+  const markdown = preserveResumeHeader(result.tailored_resume_md, cvMd);
+  assertResumeHeader(markdown);
+
   return {
-    markdown:        result.tailored_resume_md,
+    markdown,
     fit_score:       Math.max(0, Math.min(100, result.fit_score)),
     detected_skills: result.detected_skills,
     job_title:       typeof result.job_title === 'string' ? result.job_title : '',

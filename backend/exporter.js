@@ -69,8 +69,8 @@ function resolveChromeExecutable(cacheDir = resolvePuppeteerCacheDir()) {
  * @param {string} [theme]  - Theme name (e.g. 'classic'). Defaults to user.config.js theme.
  * @returns {Promise<Buffer>}
  */
-async function exportResumePDF(markdown, theme) {
-  const html = renderResume(markdown, theme);
+async function exportResumePDF(markdown, theme, { headerSource } = {}) {
+  const html = renderResume(markdown, theme, { headerSource });
   return _renderPDF(html, {
     format: 'A4',
     printBackground: true,

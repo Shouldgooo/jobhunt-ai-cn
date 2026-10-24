@@ -2,7 +2,17 @@
 
 const { test } = require('node:test');
 const assert   = require('node:assert/strict');
-const { renderBlock, inlineMd, parseFrontMatter, renderResume } = require('../renderer');
+const {
+  renderBlock,
+  inlineMd,
+  parseFrontMatter,
+  renderResume,
+  preserveResumeHeader,
+  hasResumeHeader,
+  assertResumeHeader,
+  markdownWithRequiredHeader,
+  HEADER_REQUIRED_ERROR,
+} = require('../renderer');
 
 // ─── inlineMd ─────────────────────────────────────────────────────────────────
 
@@ -151,4 +161,111 @@ Hi.`;
   );
   assert.doesNotMatch(contact, /portfolio|email:|mobile:|github:/i);
   assert.match(html, /\.resume-contact\s*\{[^}]*text-align:\s*center/);
+});
+
+test('preserveResumeHeader restores source YAML when the model omits it', () => {
+  const source = SAMPLE_FM;
+  const restored = preserveResumeHeader('## PROFILE\nWriter.', source);
+  const { name, headerItems, body } = parseFrontMatter(restored);
+  assert.equal(name, 'Jane Doe');
+  assert.equal(headerItems.length, 2);
+  assert.equal(headerItems[0].text, 'mobile: 0400 000 000');
+  assert.match(body, /## PROFILE/);
+  assert.equal(hasResumeHeader(restored), true);
+});
+
+test('optional contact fields may be omitted without dropping name or remaining items', () => {
+  const source = `---
+name: Jane Doe
+header:
+  - text: "email: test@example.com"
+    link: mailto:test@example.com
+---
+## Summary
+Hi.`;
+  const restored = preserveResumeHeader('## Summary\nHi.', source);
+  const html = renderResume(restored, 'classic');
+  assert.match(html, /<h1 class="resume-name">Jane Doe<\/h1>/);
+  assert.match(html, /test@example.com/);
+  assert.doesNotMatch(html, /0400 000 000/);
+});
+
+test('required name missing from the source is an explicit error', () => {
+  assert.throws(
+    () => preserveResumeHeader('## Summary\nHi.', '## Summary\nNo header.'),
+    (err) => err.message === HEADER_REQUIRED_ERROR && err.statusCode === 400
+  );
+  assert.throws(
+    () => assertResumeHeader('## PROFILE\nNo name.'),
+    (err) => err.code === 'RESUME_HEADER_REQUIRED'
+  );
+});
+
+test('rendered HTML puts the header before PROFILE / summary', () => {
+  const html = renderResume(preserveResumeHeader('## PROFILE\nAbout me.', SAMPLE_FM), 'classic');
+  const headerAt = html.indexOf('class="resume-header"');
+  const nameAt = html.indexOf('Jane Doe');
+  const profileAt = html.indexOf('PROFILE');
+  assert.ok(headerAt >= 0 && nameAt >= 0 && profileAt >= 0);
+  assert.ok(headerAt < profileAt);
+  assert.ok(nameAt < profileAt);
+});
+
+test('PDF helper restores a missing header from the source CV, not from the model', () => {
+  const source = SAMPLE_FM;
+  const restored = markdownWithRequiredHeader('## PROFILE\nAbout me.', source);
+  assert.equal(parseFrontMatter(restored).name, 'Jane Doe');
+  const already = markdownWithRequiredHeader(SAMPLE_FM, '---\nname: Other Person\n---\n');
+  assert.equal(parseFrontMatter(already).name, 'Jane Doe');
+});
+
+test('preview and PDF render the same restored header without rewriting the source markdown', () => {
+  const edited = '## PROFILE\nUser-edited body stays.';
+  const previewHtml = renderResume(edited, 'classic', { headerSource: SAMPLE_FM });
+  const pdfHtml = renderResume(edited, 'classic', { headerSource: SAMPLE_FM });
+  assert.equal(previewHtml, pdfHtml);
+  assert.match(previewHtml, /<h1 class="resume-name">Jane Doe<\/h1>/);
+  assert.ok(previewHtml.indexOf('class="resume-header"') < previewHtml.indexOf('PROFILE'));
+  assert.match(previewHtml, /User-edited body stays/);
+  assert.equal(edited, '## PROFILE\nUser-edited body stays.');
+});
+
+test('user-edited contact YAML is kept and not replaced by headerSource', () => {
+  const edited = `---
+name: Jane Doe
+header:
+  - text: "email: edited@example.com"
+    link: mailto:edited@example.com
+---
+## PROFILE
+Edited body.`;
+  const html = renderResume(edited, 'classic', { headerSource: SAMPLE_FM });
+  assert.match(html, /edited@example.com/);
+  assert.doesNotMatch(html, /test@example.com/);
+  assert.match(html, /Edited body/);
+});
+
+test('incomplete YAML without name is not overwritten with source contacts', () => {
+  const incomplete = `---
+header:
+  - text: "email: edited@example.com"
+    link: mailto:edited@example.com
+---
+## PROFILE
+Keep this.`;
+  assert.throws(
+    () => markdownWithRequiredHeader(incomplete, SAMPLE_FM),
+    (err) => err.code === 'RESUME_HEADER_REQUIRED'
+  );
+});
+
+test('renderResume surfaces a missing source name instead of hiding the header', () => {
+  assert.throws(
+    () => renderResume('## PROFILE\nNo identity.', 'classic', { headerSource: false }),
+    (err) => err.message === HEADER_REQUIRED_ERROR && err.statusCode === 400
+  );
+  assert.throws(
+    () => renderResume('## PROFILE\nNo identity.', 'classic', { headerSource: '## Summary\nNo name.' }),
+    (err) => err.code === 'RESUME_HEADER_REQUIRED'
+  );
 });
